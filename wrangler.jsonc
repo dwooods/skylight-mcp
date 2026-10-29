@@ -5,15 +5,17 @@
   "compatibility_date": "2026-10-28",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "workers_dev": true,
+  "preview_urls": false,
   "observability": { "enabled": true },
   "kv_namespaces": [
     // Create with: npx wrangler kv namespace create OAUTH_KV   (then paste the id here)
     { "binding": "OAUTH_KV", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }
   ],
   "vars": {
-    // Must be exactly the public origin of this Worker; tokens are bound to it.
-    "WORKER_URL": "https://skylight-mcp.REPLACE_WITH_ACCOUNT_SUBDOMAIN.workers.dev",
     "DEFAULT_TIMEZONE": "America/Los_Angeles"
   }
-  // Secrets (never in this file): npx wrangler secret put SETUP_PASSPHRASE
+  // Set with `npx wrangler secret put <NAME>`, never in this file:
+  //   SETUP_PASSPHRASE  12+ chars; required on the consent page to link an account
+  //   WORKER_URL        exactly the public origin, e.g. https://skylight-mcp.<subdomain>.workers.dev
+  //                     (tokens are bound to it; kept out of the repo so the URL isn't published)
 }

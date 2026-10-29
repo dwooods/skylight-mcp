@@ -155,15 +155,16 @@ The hosted server exposes **read and create/update tools only**: no
 ```bash
 npm install
 npx wrangler login
-npx wrangler kv namespace create OAUTH_KV        # paste the id into wrangler.jsonc
-# edit wrangler.jsonc: WORKER_URL = https://skylight-mcp.<your-subdomain>.workers.dev
+npx wrangler kv namespace create OAUTH_KV        # let it add the id to wrangler.jsonc
 npx wrangler secret put SETUP_PASSPHRASE          # 12+ chars; required to link an account
+npx wrangler deploy                               # prints the Worker's URL
+npx wrangler secret put WORKER_URL                # paste that URL (origin only, no path)
 npx wrangler deploy
 ```
 
 `WORKER_URL` must be exactly the public origin of the Worker; every token is
-bound to it. Find your `workers.dev` subdomain in the Cloudflare dashboard
-under Workers & Pages, or from the URL `wrangler deploy` prints.
+bound to it. It is a secret rather than a `vars` entry so the server's
+address is not published with the source.
 
 ### Connect from Claude
 
