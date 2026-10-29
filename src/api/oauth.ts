@@ -78,30 +78,45 @@ function deviceMetadata(fingerprint: string): Record<string, string> {
   };
 }
 
-/**
- * Start a login: returns the URL the user must open in their browser and the
- * pending-login record the caller must persist until `completeBrowserLogin`.
- */
-export function beginBrowserLogin(now: number = Date.now()): { loginUrl: string; pending: PendingLogin } {
-  const codeVerifier = base64url(randomBytes(32));
-  const codeChallenge = base64url(createHash("sha256").update(codeVerifier).digest());
-  const pending: PendingLogin = {
-    state: randomBytes(16).toString("hex"),
-    codeVerifier,
-    fingerprint: randomUUID(),
+/** The S256 challenge for a verifier. */
+export function codeChallengeFor(codeVerifier: string): string {
+  return base64url(createHash("sha256").update(codeVerifier).digest());
+}
+
+/** Fresh PKCE verifier, state and device fingerprint for a new login. */
+export function newPendingLogin(now: number = Date.now(), overrides: Partial<Pick<PendingLogin, "state" | "fingerprint">> = {}): PendingLogin {
+  return {
+    state: overrides.state ?? randomBytes(16).toString("hex"),
+    codeVerifier: base64url(randomBytes(32)),
+    fingerprint: overrides.fingerprint ?? randomUUID(),
     createdAt: now,
   };
+}
 
+/** The Skylight authorize URL for a pending login. */
+export function authorizeUrlFor(pending: PendingLogin): string {
   const url = new URL("/oauth/authorize", SKYLIGHT_BASE_URL);
   url.searchParams.set("client_id", OAUTH_CLIENT_ID);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("redirect_uri", REDIRECT_URI);
   url.searchParams.set("scope", SCOPE);
   url.searchParams.set("state", pending.state);
-  url.searchParams.set("code_challenge", codeChallenge);
+  url.searchParams.set("code_challenge", codeChallengeFor(pending.codeVerifier));
   url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("skylight_api_client_device_fingerprint", pending.fingerprint);
-  return { loginUrl: url.toString(), pending };
+  return url.toString();
+}
+
+/**
+ * Start a login: returns the URL the user must open in their browser and the
+ * pending-login record the caller must persist until `completeBrowserLogin`.
+ */
+export function beginBrowserLogin(
+  now: number = Date.now(),
+  overrides: Partial<Pick<PendingLogin, "state" | "fingerprint">> = {}
+): { loginUrl: string; pending: PendingLogin } {
+  const pending = newPendingLogin(now, overrides);
+  return { loginUrl: authorizeUrlFor(pending), pending };
 }
 
 function safeEqual(a: string, b: string): boolean {

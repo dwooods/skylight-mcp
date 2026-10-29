@@ -19,7 +19,7 @@ fail=0
 
 # Block files that should never be committed, regardless of content.
 blocked_files=$(git diff --cached --name-only --diff-filter=ACMR | grep -E \
-  '(^|/)\.env($|\.)|\.har$|\.pem$|\.key$|\.p12$|(^|/)skylight-state|(^|/)token-store|(^|/)credential(\.enc)?\.json$|(^|/)pending-login\.json$|(^|/)\.skylight' \
+  '(^|/)\.env($|\.)|(^|/)\.dev\.vars$|\.har$|\.pem$|\.key$|\.p12$|(^|/)skylight-state|(^|/)token-store|(^|/)credential(\.enc)?\.json$|(^|/)pending-login\.json$|(^|/)\.skylight' \
   | grep -v -E '(^|/)\.env\.example$' || true)
 if [ -n "$blocked_files" ]; then
   echo "pre-commit: refusing to commit sensitive file(s):" >&2

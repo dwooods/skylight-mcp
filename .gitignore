@@ -49,3 +49,5 @@ coverage/
 
 # Plan folder (local planning docs)
 ../plan/
+.dev.vars
+.wrangler/

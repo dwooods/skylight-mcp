@@ -138,6 +138,57 @@ The hard way, if that URL doesn't appear:
 - Skylight has no official API. This uses the same OAuth client the Skylight
   app uses, and it may break or be blocked at any time.
 
+## Hosted server (Claude Duet, Claude on other devices)
+
+The same code also runs as a remote MCP server on Cloudflare Workers, which is
+how Claude Duet (and any Claude client that can't reach your Mac) connects.
+One Worker is both the OAuth authorization server Claude talks to and the MCP
+resource server. Signing in is the same browser-paste flow as the CLI; your
+Skylight password never reaches the Worker, and the Skylight tokens are kept
+encrypted in the OAuth grant, not in a database you manage.
+
+The hosted server exposes **read and create/update tools only**: no
+`delete_*` tools and no photo uploads. Use the local server if you need those.
+
+### Deploy (once)
+
+```bash
+npm install
+npx wrangler login
+npx wrangler kv namespace create OAUTH_KV        # paste the id into wrangler.jsonc
+# edit wrangler.jsonc: WORKER_URL = https://skylight-mcp.<your-subdomain>.workers.dev
+npx wrangler secret put SETUP_PASSPHRASE          # 12+ chars; required to link an account
+npx wrangler deploy
+```
+
+`WORKER_URL` must be exactly the public origin of the Worker; every token is
+bound to it. Find your `workers.dev` subdomain in the Cloudflare dashboard
+under Workers & Pages, or from the URL `wrangler deploy` prints.
+
+### Connect from Claude
+
+In Claude (or Duet) → Settings → Connectors → Add custom connector:
+
+- Name: `Skylight`
+- URL: `https://skylight-mcp.<your-subdomain>.workers.dev/mcp`
+
+Claude opens the consent page. Enter the setup passphrase, your frame ID and
+timezone, then follow the two-step Skylight sign-in and paste the redirect
+URL. Connectors are shared across your Claude account, so Duet sees it too.
+
+### What is stored where
+
+| Thing | Where | Protection |
+|---|---|---|
+| Skylight access + refresh tokens | OAuth grant props in `OAUTH_KV` | Encrypted by workers-oauth-provider; the key is derived from the token Claude holds, so KV alone is not enough |
+| PKCE verifier during sign-in | Upstream transaction in `OAUTH_KV` | Bound to your browser by a `__Host-` cookie; single use; 10-minute TTL |
+| Setup passphrase | Worker secret | Never in the repo or `wrangler.jsonc` |
+| Nothing else | | The Worker has no database and no logs of tokens |
+
+To revoke: remove the connector in Claude (revokes the grant), or
+`npx wrangler kv key list --binding OAUTH_KV` and delete, or change your
+Skylight password.
+
 ## Available Tools
 
 ### Calendar Tools

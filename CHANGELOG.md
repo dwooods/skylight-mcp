@@ -17,8 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `0600` file store elsewhere. Fails closed when the Keychain is unavailable.
 - Automatic access-token refresh with rotation persisted; one in-flight
   refresh shared across concurrent requests; one retry on 401.
-- Tests for the OAuth module, both credential stores, client auth order, and
-  API host pinning.
+- Tests for the OAuth module, both credential stores, client auth order,
+  API host pinning, the tool registry, request context and the hosted MCP
+  handler (82 total).
+
+- **Hosted server for Claude Duet** (`src/worker/`, `wrangler.jsonc`): a
+  Cloudflare Worker that is both OAuth authorization server and MCP resource
+  server (`@cloudflare/workers-oauth-provider` 1.x). Consent page gated by a
+  setup passphrase; the same browser-paste Skylight sign-in, with the PKCE
+  verifier held in a browser-bound upstream transaction; Skylight tokens kept
+  in encrypted grant props and refreshed in `tokenExchangeCallback`. Exposes
+  read + create/update tools only.
+- `src/context.ts`: per-request AsyncLocalStorage context so one process can
+  serve many grants; `src/tools/registry.ts`: effect classification and MCP
+  annotations for every tool.
 
 ### Changed
 

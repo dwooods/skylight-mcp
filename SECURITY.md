@@ -37,6 +37,19 @@ secrets and never commit them:
    **push protection** (Settings → Code security). Both are on by default
    for public repos.
 
+## Hosted server (Cloudflare Workers)
+
+- `.dev.vars` (local secrets for `wrangler dev`) and `.wrangler/` are
+  git-ignored and blocked by the pre-commit hook.
+- `SETUP_PASSPHRASE` is a Worker secret (`wrangler secret put`), never a
+  `vars` entry in `wrangler.jsonc`.
+- The Worker stores Skylight tokens only inside OAuth grant props, which
+  workers-oauth-provider encrypts; it keeps no plaintext credential anywhere.
+- The hosted tool set excludes every `delete_*` tool and photo uploads.
+- Anyone who finds the URL can reach the consent page but cannot link an
+  account without the passphrase, and a linked account only ever grants
+  access to the Skylight account whose sign-in was pasted.
+
 ## Generated API types
 
 `src/api/generated-types.ts` is produced from an OpenAPI spec that was built

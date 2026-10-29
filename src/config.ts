@@ -69,6 +69,8 @@ To find your frame ID:
 3. Look for the frame ID in URLs like /api/frames/{frameId}/chores
 `);
     process.exit(1);
+    // process.exit never returns in Node; this satisfies runtimes whose types disagree.
+    throw new Error("Invalid configuration");
   }
 
   return result.data;
