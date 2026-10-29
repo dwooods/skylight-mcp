@@ -4,10 +4,29 @@ node_modules/
 # Build output
 dist/
 
-# Environment files
+# Environment files / credentials (only .env.example is tracked)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.crt
+
+# Skylight tokens and local state (OAuth/refresh tokens)
+skylight-state*
+token-store*
+.skylight/
+
+# Traffic captures (contain real tokens, emails, calendar IDs)
+*.har
+*.mitm
+*.flow
+captures/
+
+# Generated API types: built from real traffic captures and can embed
+# personal data. Not used at runtime. Keep local, never commit.
+src/api/generated-types.ts
 
 # IDE
 .idea/

@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Pre-commit secret guard. Enable once per clone:
+#   git config core.hooksPath .githooks
+#
+# 1) Uses gitleaks if installed (best coverage).
+# 2) Always runs a dependency-free check of the staged diff for the things
+#    this project is most likely to leak: Skylight credentials, bearer/basic
+#    tokens, JWTs, private keys, HAR captures, and real personal emails.
+set -euo pipefail
+
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --config .gitleaks.toml || {
+    echo "pre-commit: gitleaks found a possible secret. Commit blocked." >&2
+    exit 1
+  }
+fi
+
+fail=0
+
+# Block files that should never be committed, regardless of content.
+blocked_files=$(git diff --cached --name-only --diff-filter=ACMR | grep -E \
+  '(^|/)\.env($|\.)|\.har$|\.pem$|\.key$|\.p12$|(^|/)skylight-state|(^|/)token-store|(^|/)\.skylight' \
+  | grep -v -E '(^|/)\.env\.example$' || true)
+if [ -n "$blocked_files" ]; then
+  echo "pre-commit: refusing to commit sensitive file(s):" >&2
+  echo "$blocked_files" | sed 's/^/  - /' >&2
+  fail=1
+fi
+
+# Scan only added lines of the staged diff.
+added=$(git diff --cached -U0 --no-color | grep -E '^\+[^+]' || true)
+
+scan() { # $1 = description, $2 = ERE
+  local hits
+  hits=$(printf '%s\n' "$added" | grep -n -i -E -e "$2" | grep -v -E 'your_|example\.com|placeholder|test-|-123|abc123|<redacted>' || true)
+  if [ -n "$hits" ]; then
+    echo "pre-commit: possible $1 in staged changes:" >&2
+    printf '%s\n' "$hits" | cut -c1-120 | sed 's/^/  /' >&2
+    fail=1
+  fi
+}
+
+scan "private key"            '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+scan "JWT"                    'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}'
+scan "bearer/basic token"     '(bearer|basic) [A-Za-z0-9+/=_.-]{24,}'
+scan "hard-coded credential"  '(password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|skylight_(token|password))[\"'"'"' ]*[:=][\"'"'"' ]*[A-Za-z0-9+/_=!@#$%^&*.-]{8,}'
+scan "personal email address" '[A-Za-z0-9._%+-]+@(gmail|googlemail|yahoo|icloud|me|outlook|hotmail|proton(mail)?)\.[a-z]{2,}'
+scan "Google calendar id"     '@group\.calendar\.google\.com'
+
+if [ "$fail" -ne 0 ]; then
+  echo >&2
+  echo "Commit blocked. If a hit is a false positive, fix the placeholder (e.g. 'your_password')" >&2
+  echo "or, as a last resort, commit with: git commit --no-verify  (then double-check the diff)." >&2
+  exit 1
+fi

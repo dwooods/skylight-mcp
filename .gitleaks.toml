@@ -1,0 +1,22 @@
+title = "skylight-mcp gitleaks config"
+
+[extend]
+useDefault = true
+
+# Project-specific rule: Skylight credentials assigned in env-style or JSON config.
+[[rules]]
+id = "skylight-credential-assignment"
+description = "SKYLIGHT_PASSWORD / SKYLIGHT_TOKEN assigned a real-looking value"
+regex = '''(?i)SKYLIGHT_(PASSWORD|TOKEN)["']?\s*[:=]\s*["']?[A-Za-z0-9+/_=!@#$%^&*.\-]{8,}'''
+tags = ["skylight", "credential"]
+
+[allowlist]
+description = "Placeholders and test fixtures only"
+paths = [
+  '''^\.env\.example$''',
+  '''^tests/.*\.test\.ts$''',
+]
+regexes = [
+  '''your_[a-z_]+''',
+  '''example\.com''',
+]
