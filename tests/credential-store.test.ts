@@ -31,10 +31,12 @@ function fakeKeychain(options: { failAdd?: boolean } = {}) {
     if (op === "find-generic-password") {
       return key === null ? { code: 44, stdout: "", stderr: "" } : { code: 0, stdout: `${key}\n`, stderr: "" };
     }
-    if (op === "add-generic-password") {
-      if (options.failAdd) return { code: 1, stdout: "", stderr: "denied" };
-      key = (input ?? "").split("\n")[0];
-      return { code: 0, stdout: "", stderr: "" };
+    if (op === "-i") {
+      // Interactive mode: one command per line on stdin; exit code is 0 even on failure.
+      const m = /^add-generic-password -U -a (\S+) -s (\S+) -l (\S+) -w (\S+)$/.exec((input ?? "").trim());
+      if (!m) return { code: 1, stdout: "", stderr: "bad command" };
+      if (!options.failAdd) key = m[4];
+      return { code: 0, stdout: "", stderr: options.failAdd ? "denied" : "" };
     }
     if (op === "delete-generic-password") {
       const had = key !== null;
@@ -97,11 +99,10 @@ describe("keychain credential store", () => {
   it("passes the key on stdin, not in argv", async () => {
     const kc = fakeKeychain();
     await createKeychainCredentialStore({ directory: dir, runner: kc.runner }).write(credential);
-    const add = kc.calls.find((c) => c.args[0] === "add-generic-password")!;
-    const key = add.input!.split("\n")[0];
+    const add = kc.calls.find((c) => c.args[0] === "-i")!;
+    const key = / -w (\S+)/.exec(add.input!)![1];
     expect(key.length).toBeGreaterThan(20);
-    expect(add.args.join(" ")).not.toContain(key);
-    expect(add.args.at(-1)).toBe("-w");
+    expect(add.args).toEqual(["-i"]);
   });
 
   it("reuses the same key across writes", async () => {
@@ -109,14 +110,14 @@ describe("keychain credential store", () => {
     const store = createKeychainCredentialStore({ directory: dir, runner: kc.runner });
     await store.write(credential);
     await store.write({ ...credential, accessToken: "test-access-2" });
-    expect(kc.calls.filter((c) => c.args[0] === "add-generic-password")).toHaveLength(1);
+    expect(kc.calls.filter((c) => c.args[0] === "-i")).toHaveLength(1);
     expect((await store.read())?.accessToken).toBe("test-access-2");
   });
 
   it("fails closed when the keychain refuses the key: nothing is written", async () => {
     const kc = fakeKeychain({ failAdd: true });
     const store = createKeychainCredentialStore({ directory: dir, runner: kc.runner });
-    await expect(store.write(credential)).rejects.toThrow(/Keychain/);
+    await expect(store.write(credential)).rejects.toThrow(/did not store the encryption key/);
     expect(await readdir(dir)).toEqual([]);
   });
 

@@ -22,6 +22,7 @@ import { SKYLIGHT_BASE_URL } from "./constants.js";
 import { parseStoredCredential, type PendingLogin, type StoredCredential } from "./oauth.js";
 
 const KEYCHAIN_SERVICE = "skylight-mcp.encryption-key";
+const KEYCHAIN_LABEL = "skylight-mcp";
 const KEYCHAIN_TIMEOUT_MS = 15_000;
 const CREDENTIAL_FILE = "credential.json";
 const ENCRYPTED_FILE = "credential.enc.json";
@@ -222,24 +223,23 @@ export function createKeychainCredentialStore(
 
   const writeKey = async (key: Buffer): Promise<void> => {
     const encoded = key.toString("base64");
-    // `-w` with no value makes `security` read the password from stdin (twice),
-    // which keeps the key out of the process argument list.
+    // `security add-generic-password -w` with no value reads from the TTY, not
+    // stdin, so it hangs when run from a program. `security -i` instead reads
+    // whole commands from stdin, which keeps the key out of the process
+    // argument list. None of the values need quoting: the account is a URL,
+    // the service and label have no spaces, and the key is base64.
     const result = await run(
-      [
-        "add-generic-password",
-        "-U",
-        "-a",
-        account,
-        "-s",
-        KEYCHAIN_SERVICE,
-        "-l",
-        "Skylight MCP credential encryption key",
-        "-w",
-      ],
-      `${encoded}\n${encoded}\n`
+      ["-i"],
+      `add-generic-password -U -a ${account} -s ${KEYCHAIN_SERVICE} -l ${KEYCHAIN_LABEL} -w ${encoded}\n`
     );
     if (result.code !== 0) {
       throw new CredentialStoreError(`Could not store the encryption key in macOS Keychain (exit ${result.code}).`);
+    }
+    // Interactive mode does not reliably report per-command failures, so
+    // confirm the key is really there before encrypting anything with it.
+    const stored = await readKey();
+    if (stored === null || !stored.equals(key)) {
+      throw new CredentialStoreError("macOS Keychain did not store the encryption key. Nothing was saved.");
     }
   };
 

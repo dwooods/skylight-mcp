@@ -72,8 +72,8 @@ export async function runAuthCommand(args: readonly string[], overrides: Partial
         deps.out(`   ${loginUrl}\n`);
         deps.out("2. After signing in, the browser lands on a page at https://ourskylight.com/welcome.");
         deps.out("   It may look blank or show an error. That is expected. Copy the full URL from the address bar.\n");
-        deps.out("3. Run:  skylight-mcp auth complete");
-        deps.out(`   and paste the URL. This login expires in ${PENDING_LOGIN_TTL_MS / 60_000} minutes.`);
+        deps.out("3. Run the same command you just ran, with `complete` instead of `login`,");
+        deps.out(`   and paste the URL at the prompt. This login expires in ${PENDING_LOGIN_TTL_MS / 60_000} minutes.`);
         return 0;
       }
 
