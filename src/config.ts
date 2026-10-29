@@ -43,7 +43,7 @@ export function loadConfig(): Config {
   });
 
   if (!result.success) {
-    const errors = result.error.errors.map((e) => `  - ${e.message}`).join("\n");
+    const errors = result.error.issues.map((e) => `  - ${e.message}`).join("\n");
     console.error(`
 Skylight MCP Server - Configuration Error
 

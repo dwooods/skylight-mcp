@@ -43,6 +43,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `THIRD_PARTY_NOTICES.md` credits kamilio/skylight-calendar-agent (MIT), whose
   design informed the sign-in flow and credential store.
 
+### Security
+
+- `npm audit`: 24 → 0. Runtime: `@modelcontextprotocol/sdk` 1.25 → 1.32
+  (GHSA-345p-7cg4-v4c7, cross-client data leak via shared transport reuse;
+  this server already creates one server+transport per request) and `zod`
+  3 → 4 (GHSA-mrhx-c7xc-m3w5). Dev: `vitest` 1 → 5, `vite` 8, `@types/node`
+  22.
+
 ### Removed
 
 - Node 18 support (end-of-life April 2025; `wrangler` needs 20+). `engines` is now `>=20`.
