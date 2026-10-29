@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `THIRD_PARTY_NOTICES.md` credits kamilio/skylight-calendar-agent (MIT), whose
   design informed the sign-in flow and credential store.
 
+### Removed
+
+- Node 18 support (end-of-life April 2025; `wrangler` needs 20+). `engines` is now `>=20`.
+
 ### Deprecated
 
 - `SKYLIGHT_EMAIL` / `SKYLIGHT_PASSWORD` login.
