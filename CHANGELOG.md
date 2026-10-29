@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Browser-paste sign-in**: `skylight-mcp auth login` / `auth complete <url>` /
+  `auth status` / `auth logout`. You sign in in your own browser and paste the
+  redirect URL; the password never reaches the server. PKCE (S256) and a
+  state check bound to a short-lived `0600` pending-login file.
+- **Encrypted credential store**: AES-256-GCM with the key in macOS Keychain;
+  `0600` file store elsewhere. Fails closed when the Keychain is unavailable.
+- Automatic access-token refresh with rotation persisted; one in-flight
+  refresh shared across concurrent requests; one retry on 401.
+- Tests for the OAuth module, both credential stores, client auth order, and
+  API host pinning.
+
+### Changed
+
+- Auth source order is now explicit token, stored credential, then the
+  deprecated email/password login. Startup no longer requires email/password or
+  token env vars.
+- The client refuses absolute endpoint URLs whose origin is not the Skylight API
+  host, so a bearer token can never be sent elsewhere.
+- README, SECURITY.md and `.env.example` rewritten for the new flow.
+- `THIRD_PARTY_NOTICES.md` credits kamilio/skylight-calendar-agent (MIT), whose
+  design informed the sign-in flow and credential store.
+
+### Deprecated
+
+- `SKYLIGHT_EMAIL` / `SKYLIGHT_PASSWORD` login.
+
 ## [1.1.8] - 2026-04-14
 
 ### Fixed

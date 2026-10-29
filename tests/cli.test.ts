@@ -1,0 +1,32 @@
+import { describe, expect, it } from "vitest";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { runAuthCommand } from "../src/cli.js";
+import { createFileCredentialStore, savePendingLogin, takePendingLogin } from "../src/api/credential-store.js";
+import { completeBrowserLogin } from "../src/api/oauth.js";
+
+describe("cli smoke", () => {
+  it("login -> complete -> status -> logout", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "cli-"));
+    const out: string[] = [];
+    const store = createFileCredentialStore({ directory: dir });
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ access_token: "test-a", refresh_token: "test-r", expires_in: 60 }), { status: 200 })) as unknown as typeof fetch;
+    const deps = {
+      store, out: (l: string) => out.push(l),
+      savePending: (p: any) => savePendingLogin(p, dir), takePending: () => takePendingLogin(dir),
+      complete: (u: string, p: any) => completeBrowserLogin(u, p, fetchImpl),
+    };
+    expect(await runAuthCommand(["status"], deps)).toBe(1);
+    expect(await runAuthCommand(["login"], deps)).toBe(0);
+    const url = out.find((l) => l.includes("oauth/authorize"))!.trim();
+    const state = new URL(url).searchParams.get("state");
+    expect(await runAuthCommand(["complete", `https://ourskylight.com/welcome?code=c&state=${state}`], deps)).toBe(0);
+    expect(await runAuthCommand(["complete", `https://ourskylight.com/welcome?code=c&state=${state}`], deps)).toBe(1); // single use
+    expect(await runAuthCommand(["status"], deps)).toBe(0);
+    expect(await runAuthCommand(["logout"], deps)).toBe(0);
+    expect(await runAuthCommand(["status"], deps)).toBe(1);
+    expect(await runAuthCommand(["bogus"], deps)).toBe(1);
+  });
+});

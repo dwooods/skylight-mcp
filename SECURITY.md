@@ -1,9 +1,12 @@
 # Security & credential handling
 
-This server logs in to Skylight with your account email and password (or a
-manually captured token). Treat all of the following as secrets and never
-commit them:
+This server signs in to Skylight through your browser (`skylight-mcp auth
+login`) and stores the resulting OAuth tokens locally, or, in the deprecated
+fallback, logs in with your email and password. Treat all of the following as
+secrets and never commit them:
 
+- The credential store (`credential.enc.json` / `credential.json`) and the
+  `pending-login.json` file; see README > Authentication for locations
 - `SKYLIGHT_EMAIL`, `SKYLIGHT_PASSWORD`, `SKYLIGHT_TOKEN`
 - Your Skylight **frame ID** (identifies your household)
 - Anything captured from app traffic: HAR files, proxy dumps, bearer tokens,
@@ -11,7 +14,11 @@ commit them:
 
 ## Where credentials belong
 
-- **Local use:** in your MCP client config's `env` block, or an untracked `.env`
+- **Preferred:** nowhere in your config. `auth login` keeps tokens in the
+  per-user credential store (macOS: AES-256-GCM, key in Keychain; elsewhere a
+  `0600` file). The server refuses to fall back to plaintext if the Keychain is
+  unavailable, and it only ever sends the token to `app.ourskylight.com`.
+- **Local use (fallback):** in your MCP client config's `env` block, or an untracked `.env`
   file. `.env` and variants are git-ignored; only `.env.example` (placeholders
   only) is tracked.
 - **Never** hard-code credentials in source, tests, docs, or commit messages.

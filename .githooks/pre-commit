@@ -19,7 +19,7 @@ fail=0
 
 # Block files that should never be committed, regardless of content.
 blocked_files=$(git diff --cached --name-only --diff-filter=ACMR | grep -E \
-  '(^|/)\.env($|\.)|\.har$|\.pem$|\.key$|\.p12$|(^|/)skylight-state|(^|/)token-store|(^|/)\.skylight' \
+  '(^|/)\.env($|\.)|\.har$|\.pem$|\.key$|\.p12$|(^|/)skylight-state|(^|/)token-store|(^|/)credential(\.enc)?\.json$|(^|/)pending-login\.json$|(^|/)\.skylight' \
   | grep -v -E '(^|/)\.env\.example$' || true)
 if [ -n "$blocked_files" ]; then
   echo "pre-commit: refusing to commit sensitive file(s):" >&2
@@ -43,7 +43,8 @@ scan() { # $1 = description, $2 = ERE
 scan "private key"            '-----BEGIN [A-Z ]*PRIVATE KEY-----'
 scan "JWT"                    'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}'
 scan "bearer/basic token"     '(bearer|basic) [A-Za-z0-9+/=_.-]{24,}'
-scan "hard-coded credential"  '(password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|skylight_(token|password))[\"'"'"' ]*[:=][\"'"'"' ]*[A-Za-z0-9+/_=!@#$%^&*.-]{8,}'
+scan "hard-coded credential"  '(password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|skylight_(token|password))["'"'"' ]*[:=][ ]*["'"'"'][A-Za-z0-9+/_=!@#$%^&*.-]{8,}["'"'"']'
+scan "env-style credential"   '^\+[A-Z_]*(PASSWORD|TOKEN|SECRET|API_KEY)[A-Z_]*=[A-Za-z0-9+/_=!@#$%^&*.-]{8,}'
 scan "personal email address" '[A-Za-z0-9._%+-]+@(gmail|googlemail|yahoo|icloud|me|outlook|hotmail|proton(mail)?)\.[a-z]{2,}'
 scan "Google calendar id"     '@group\.calendar\.google\.com'
 

@@ -16,6 +16,8 @@ dist/
 # Skylight tokens and local state (OAuth/refresh tokens)
 skylight-state*
 token-store*
+credential*.json
+pending-login.json
 .skylight/
 
 # Traffic captures (contain real tokens, emails, calendar IDs)
