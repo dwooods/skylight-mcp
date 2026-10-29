@@ -7,16 +7,32 @@ useDefault = true
 [[rules]]
 id = "skylight-credential-assignment"
 description = "SKYLIGHT_PASSWORD / SKYLIGHT_TOKEN assigned a real-looking value"
-regex = '''(?i)SKYLIGHT_(PASSWORD|TOKEN)["']?\s*[:=]\s*["']?[A-Za-z0-9+/_=!@#$%^&*.\-]{8,}'''
+regex = '''(?i)SKYLIGHT_(PASSWORD|TOKEN)["']?\s*[:=]\s*["']?([A-Za-z0-9+/_=!@#$%^&*.\-]{8,})'''
+secretGroup = 2
 tags = ["skylight", "credential"]
 
-[allowlist]
-description = "Placeholders and test fixtures only"
+  # Documentation placeholders are not secrets.
+  [[rules.allowlists]]
+  regexTarget = "line"
+  regexes = [
+    '''your_[a-z_]+''',
+    '''REPLACE_WITH_''',
+    '''<[a-z _-]+>''',
+    '''example\.com''',
+  ]
+
+# Global: placeholders and test fixtures anywhere.
+[[allowlists]]
 paths = [
   '''^\.env\.example$''',
   '''^tests/.*\.test\.ts$''',
 ]
+
+[[allowlists]]
+regexTarget = "line"
 regexes = [
   '''your_[a-z_]+''',
+  '''REPLACE_WITH_''',
   '''example\.com''',
+  '''test-[a-z]+-[0-9a-z]+''',
 ]

@@ -13,20 +13,43 @@ An MCP (Model Context Protocol) server for the Skylight Calendar API. Enables AI
 
 ## Quick Start
 
-### Installation
+### 1. Install
 
-#### Option 1: npm package (Recommended)
+```bash
+git clone https://github.com/dwooods/skylight-mcp.git
+cd skylight-mcp && npm install && npm run build
+```
+
+### 2. Sign in (once)
+
+```bash
+node dist/index.js auth login
+```
+
+This prints a Skylight sign-in URL. Open it in your browser and sign in. The
+browser bounces through `https://ourskylight.com/welcome?code=...` and on to
+the Skylight home page too fast to copy. Get it from your browser history:
+`Cmd-Y` (Mac) / `Ctrl-H`, search `welcome?code`, right-click the newest
+Skylight result, Copy link address. Then:
+
+```bash
+node dist/index.js auth complete
+```
+
+and paste it. Your password never touches this program; only the resulting
+OAuth tokens are stored, encrypted with a key in the macOS Keychain (plain
+`0600` file on Linux/Windows). `auth status` and `auth logout` do what they say.
+
+### 3. Add to your MCP client
 
 **mcp.json:**
 ```json
 {
   "mcpServers": {
     "skylight": {
-      "command": "npx",
-      "args": ["@eaglebyte/skylight-mcp"],
+      "command": "node",
+      "args": ["/path/to/skylight-mcp/dist/index.js"],
       "env": {
-        "SKYLIGHT_EMAIL": "your_email@example.com",
-        "SKYLIGHT_PASSWORD": "your_password",
         "SKYLIGHT_FRAME_ID": "your_frame_id"
       }
     }
@@ -36,34 +59,8 @@ An MCP (Model Context Protocol) server for the Skylight Calendar API. Enables AI
 
 **Claude Code:**
 ```bash
-claude mcp add skylight npx @eaglebyte/skylight-mcp \
-  -e SKYLIGHT_EMAIL=your_email@example.com \
-  -e SKYLIGHT_PASSWORD=your_password \
+claude mcp add skylight node /path/to/skylight-mcp/dist/index.js \
   -e SKYLIGHT_FRAME_ID=your_frame_id
-```
-
-#### Option 2: From source
-
-```bash
-git clone https://github.com/TheEagleByte/skylight-mcp.git
-cd skylight-mcp && npm install && npm run build
-```
-
-Then use in mcp.json:
-```json
-{
-  "mcpServers": {
-    "skylight": {
-      "command": "node",
-      "args": ["/path/to/skylight-mcp/dist/index.js"],
-      "env": {
-        "SKYLIGHT_EMAIL": "your_email@example.com",
-        "SKYLIGHT_PASSWORD": "your_password",
-        "SKYLIGHT_FRAME_ID": "your_frame_id"
-      }
-    }
-  }
-}
 ```
 
 ### Instructions for AI
@@ -80,37 +77,41 @@ Copy this into your AI's custom instructions or system prompt:
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - A Skylight account with an active subscription
 - Your Skylight Frame ID (see [Finding your Frame ID](#finding-your-frame-id))
 
 ## Authentication
 
-The MCP server supports two authentication methods:
+Sources are tried in this order:
 
-### Option 1: Email/Password (Recommended)
+1. **`SKYLIGHT_TOKEN`** - an explicit token in the environment, if set.
+2. **Stored OAuth credential** (recommended) - created by `skylight-mcp auth login`
+   / `auth complete`. The access token is refreshed automatically; refresh tokens
+   rotate and the rotated token is persisted.
+3. **`SKYLIGHT_EMAIL` + `SKYLIGHT_PASSWORD`** (deprecated) - the server replays
+   Skylight's web login form itself. This works but puts your password in your
+   MCP client config in plaintext. Prefer the browser sign-in above.
 
-Use your Skylight account credentials. The server automatically follows Skylight's web OAuth login flow and manages the returned bearer token for you.
+If none is present the server fails with instructions rather than starting.
 
-```env
-SKYLIGHT_EMAIL=your_email@example.com
-SKYLIGHT_PASSWORD=your_password
-SKYLIGHT_FRAME_ID=your_frame_id
-```
+Where the credential lives:
 
-### Option 2: Manual Token (Legacy)
+| Platform | Location | Protection |
+|----------|----------|------------|
+| macOS | `~/Library/Application Support/skylight-mcp/credential.enc.json` | AES-256-GCM; key in Keychain (`skylight-mcp.encryption-key`) |
+| Linux / other | `$XDG_CONFIG_HOME/skylight-mcp/credential.json` (default `~/.config/skylight-mcp/`) | `0600` file in a `0700` directory, no encryption |
 
-Capture a bearer or basic token from Skylight traffic using a proxy tool.
-
-```env
-SKYLIGHT_TOKEN=your_token_here
-SKYLIGHT_FRAME_ID=your_frame_id
-SKYLIGHT_AUTH_TYPE=bearer
-```
+If the Keychain is unavailable on macOS the server refuses to read or write the
+credential; it never silently downgrades to plaintext.
 
 ### Finding your Frame ID
 
-You still need to find your frame ID (the household identifier):
+The frame ID is the household identifier. The easy way: after signing in, the
+Skylight web app lands on `https://ourskylight.com/my-skylight/<number>`. That
+number is your frame ID. Treat it as a secret.
+
+The hard way, if that URL doesn't appear:
 
 1. Use a proxy tool ([Proxyman](https://proxyman.io/), [Charles](https://www.charlesproxy.com/), or [mitmproxy](https://mitmproxy.org/))
 2. Capture any API request from the Skylight app
@@ -121,28 +122,73 @@ You still need to find your frame ID (the household identifier):
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `SKYLIGHT_EMAIL` | Option 1 | Your Skylight account email |
-| `SKYLIGHT_PASSWORD` | Option 1 | Your Skylight account password |
-| `SKYLIGHT_TOKEN` | Option 2 | Your captured API token (if not using email/password) |
-| `SKYLIGHT_AUTH_TYPE` | No | `bearer` (default) or `basic` (for manual token) |
+| `SKYLIGHT_TOKEN` | No | Explicit API token; overrides the stored credential |
+| `SKYLIGHT_AUTH_TYPE` | No | `bearer` (default) or `basic` (only with `SKYLIGHT_TOKEN`) |
+| `SKYLIGHT_EMAIL` | No (deprecated) | Fallback email/password login |
+| `SKYLIGHT_PASSWORD` | No (deprecated) | Fallback email/password login |
 | `SKYLIGHT_FRAME_ID` | Yes | Your household frame ID |
 | `SKYLIGHT_TIMEZONE` | No | Default timezone (default: `America/New_York`) |
 
 ### Auth Notes
 
-- Email/password auth no longer uses the legacy `/api/sessions` token flow.
-- The server now reproduces the Skylight web login flow and exchanges the resulting authorization code for a bearer token.
-- Manual token auth still works if you prefer to provide a captured token directly.
+- The API host is pinned to `https://app.ourskylight.com`. No environment
+  variable or `.env` file can redirect requests (and the bearer token) elsewhere.
+- `auth logout` deletes the local credential only; Skylight has no public way to
+  revoke a session, so change your password if a credential may have leaked.
+- Skylight has no official API. This uses the same OAuth client the Skylight
+  app uses, and it may break or be blocked at any time.
 
-### Example .env file:
+## Hosted server (Claude Duet, Claude on other devices)
 
-```env
-# Email/password auth (recommended)
-SKYLIGHT_EMAIL=your_email@example.com
-SKYLIGHT_PASSWORD=your_password
-SKYLIGHT_FRAME_ID=your_frame_id
-SKYLIGHT_TIMEZONE=America/New_York
+The same code also runs as a remote MCP server on Cloudflare Workers, which is
+how Claude Duet (and any Claude client that can't reach your Mac) connects.
+One Worker is both the OAuth authorization server Claude talks to and the MCP
+resource server. Signing in is the same browser-paste flow as the CLI; your
+Skylight password never reaches the Worker, and the Skylight tokens are kept
+encrypted in the OAuth grant, not in a database you manage.
+
+The hosted server exposes **read and create/update tools only**: no
+`delete_*` tools and no photo uploads. Use the local server if you need those.
+
+### Deploy (once)
+
+```bash
+npm install
+npx wrangler login
+npx wrangler kv namespace create OAUTH_KV        # let it add the id to wrangler.jsonc
+npx wrangler secret put SETUP_PASSPHRASE          # 12+ chars; required to link an account
+npx wrangler deploy                               # prints the Worker's URL
+npx wrangler secret put WORKER_URL                # paste that URL (origin only, no path)
+npx wrangler deploy
 ```
+
+`WORKER_URL` must be exactly the public origin of the Worker; every token is
+bound to it. It is a secret rather than a `vars` entry so the server's
+address is not published with the source.
+
+### Connect from Claude
+
+In Claude (or Duet) → Settings → Connectors → Add custom connector:
+
+- Name: `Skylight`
+- URL: `https://skylight-mcp.<your-subdomain>.workers.dev/mcp`
+
+Claude opens the consent page. Enter the setup passphrase, your frame ID and
+timezone, then follow the two-step Skylight sign-in and paste the redirect
+URL. Connectors are shared across your Claude account, so Duet sees it too.
+
+### What is stored where
+
+| Thing | Where | Protection |
+|---|---|---|
+| Skylight access + refresh tokens | OAuth grant props in `OAUTH_KV` | Encrypted by workers-oauth-provider; the key is derived from the token Claude holds, so KV alone is not enough |
+| PKCE verifier during sign-in | Upstream transaction in `OAUTH_KV` | Bound to your browser by a `__Host-` cookie; single use; 10-minute TTL |
+| Setup passphrase | Worker secret | Never in the repo or `wrangler.jsonc` |
+| Nothing else | | The Worker has no database and no logs of tokens |
+
+To revoke: remove the connector in Claude (revokes the grant), or
+`npx wrangler kv key list --binding OAUTH_KV` and delete, or change your
+Skylight password.
 
 ## Available Tools
 

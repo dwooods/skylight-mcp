@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Browser-paste sign-in**: `skylight-mcp auth login` / `auth complete <url>` /
+  `auth status` / `auth logout`. You sign in in your own browser and paste the
+  redirect URL; the password never reaches the server. PKCE (S256) and a
+  state check bound to a short-lived `0600` pending-login file.
+- **Encrypted credential store**: AES-256-GCM with the key in macOS Keychain;
+  `0600` file store elsewhere. Fails closed when the Keychain is unavailable.
+- Automatic access-token refresh with rotation persisted; one in-flight
+  refresh shared across concurrent requests; one retry on 401.
+- Tests for the OAuth module, both credential stores, client auth order,
+  API host pinning, the tool registry, request context and the hosted MCP
+  handler (82 total).
+
+- **Hosted server for Claude Duet** (`src/worker/`, `wrangler.jsonc`): a
+  Cloudflare Worker that is both OAuth authorization server and MCP resource
+  server (`@cloudflare/workers-oauth-provider` 1.x). Consent page gated by a
+  setup passphrase; the same browser-paste Skylight sign-in, with the PKCE
+  verifier held in a browser-bound upstream transaction; Skylight tokens kept
+  in encrypted grant props and refreshed in `tokenExchangeCallback`. Exposes
+  read + create/update tools only.
+- `src/context.ts`: per-request AsyncLocalStorage context so one process can
+  serve many grants; `src/tools/registry.ts`: effect classification and MCP
+  annotations for every tool.
+
+### Changed
+
+- Auth source order is now explicit token, stored credential, then the
+  deprecated email/password login. Startup no longer requires email/password or
+  token env vars.
+- The client refuses absolute endpoint URLs whose origin is not the Skylight API
+  host, so a bearer token can never be sent elsewhere.
+- README, SECURITY.md and `.env.example` rewritten for the new flow.
+- `THIRD_PARTY_NOTICES.md` credits kamilio/skylight-calendar-agent (MIT), whose
+  design informed the sign-in flow and credential store.
+
+### Security
+
+- `npm audit`: 24 → 0. Runtime: `@modelcontextprotocol/sdk` 1.25 → 1.32
+  (GHSA-345p-7cg4-v4c7, cross-client data leak via shared transport reuse;
+  this server already creates one server+transport per request) and `zod`
+  3 → 4 (GHSA-mrhx-c7xc-m3w5). Dev: `vitest` 1 → 5, `vite` 8, `@types/node`
+  22.
+
+### Removed
+
+- Node 18 support (end-of-life April 2025; `wrangler` needs 20+). `engines` is now `>=20`.
+
+### Deprecated
+
+- `SKYLIGHT_EMAIL` / `SKYLIGHT_PASSWORD` login.
+
 ## [1.1.8] - 2026-04-14
 
 ### Fixed

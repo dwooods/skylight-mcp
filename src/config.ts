@@ -1,35 +1,27 @@
 import { z } from "zod";
+import { currentContext } from "./context.js";
 
-// Config schema supports two auth methods:
-// 1. Email/password (preferred) - replays the Skylight web OAuth flow automatically
-// 2. Token-based (legacy/manual) - for captured bearer/basic tokens
-const ConfigSchema = z
-  .object({
-    // Email/password auth (preferred)
-    email: z.string().email().optional(),
-    password: z.string().min(1).optional(),
+// Auth sources, in the order the client tries them (see SkylightClient):
+// 1. SKYLIGHT_TOKEN - explicit token from the environment
+// 2. Stored OAuth credential from `skylight-mcp auth login` (recommended)
+// 3. SKYLIGHT_EMAIL + SKYLIGHT_PASSWORD - deprecated; puts the password in env
+// Whether any source exists is checked by the client, because the stored
+// credential is not visible to the config layer.
+const ConfigSchema = z.object({
+  // Deprecated email/password auth
+  email: z.string().email().optional(),
+  password: z.string().min(1).optional(),
 
-    // Token-based auth (legacy)
-    token: z.string().min(1).optional(),
-    authType: z.enum(["bearer", "basic"]).default("bearer"),
+  // Explicit token
+  token: z.string().min(1).optional(),
+  authType: z.enum(["bearer", "basic"]).default("bearer"),
 
-    // Required
-    frameId: z.string().min(1, "SKYLIGHT_FRAME_ID is required"),
+  // Required
+  frameId: z.string().min(1, "SKYLIGHT_FRAME_ID is required"),
 
-    // Optional
-    timezone: z.string().default("America/New_York"),
-  })
-  .refine(
-    (data) => {
-      // Must have either email+password OR token
-      const hasEmailAuth = data.email && data.password;
-      const hasTokenAuth = !!data.token;
-      return hasEmailAuth || hasTokenAuth;
-    },
-    {
-      message: "Either SKYLIGHT_EMAIL and SKYLIGHT_PASSWORD, or SKYLIGHT_TOKEN must be provided",
-    }
-  );
+  // Optional
+  timezone: z.string().default("America/New_York"),
+});
 
 export type Config = z.infer<typeof ConfigSchema>;
 
@@ -51,21 +43,19 @@ export function loadConfig(): Config {
   });
 
   if (!result.success) {
-    const errors = result.error.errors.map((e) => `  - ${e.message}`).join("\n");
+    const errors = result.error.issues.map((e) => `  - ${e.message}`).join("\n");
     console.error(`
 Skylight MCP Server - Configuration Error
 
 Missing or invalid configuration:
 ${errors}
 
-Authentication (choose one):
-  Option 1 - Email/Password (recommended):
-    SKYLIGHT_EMAIL    - Your Skylight account email
-    SKYLIGHT_PASSWORD - Your Skylight account password
+Authentication (recommended): run "skylight-mcp auth login" once. You sign in
+in your own browser; your password is never given to this program.
 
-  Option 2 - Manual Token:
-    SKYLIGHT_TOKEN    - Your Skylight API token
-    SKYLIGHT_AUTH_TYPE - 'bearer' or 'basic' (default: bearer)
+Deprecated alternatives:
+  SKYLIGHT_EMAIL / SKYLIGHT_PASSWORD - stores your password in the MCP config
+  SKYLIGHT_TOKEN / SKYLIGHT_AUTH_TYPE - a manually captured token
 
 Required:
   SKYLIGHT_FRAME_ID - Your frame/household ID
@@ -79,6 +69,8 @@ To find your frame ID:
 3. Look for the frame ID in URLs like /api/frames/{frameId}/chores
 `);
     process.exit(1);
+    // process.exit never returns in Node; this satisfies runtimes whose types disagree.
+    throw new Error("Invalid configuration");
   }
 
   return result.data;
@@ -87,6 +79,8 @@ To find your frame ID:
 let cachedConfig: Config | null = null;
 
 export function getConfig(): Config {
+  const context = currentContext();
+  if (context) return context.config;
   if (!cachedConfig) {
     cachedConfig = loadConfig();
   }

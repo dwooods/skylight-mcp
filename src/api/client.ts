@@ -1,6 +1,9 @@
 import { getConfig, usesEmailAuth, type Config } from "../config.js";
-import { login } from "./auth.js";
+import { detectSubscriptionStatus, login } from "./auth.js";
 import { SKYLIGHT_API_VERSION, SKYLIGHT_BASE_URL } from "./constants.js";
+import { CredentialStoreError, type CredentialStore } from "./credential-types.js";
+import { currentContext } from "../context.js";
+import { OAuthError, isExpired, refreshCredential, type StoredCredential } from "./oauth.js";
 import {
   AuthenticationError,
   NotFoundError,
@@ -28,9 +31,80 @@ export class SkylightClient {
   private resolvedToken: string | null = null;
   private loginPromise: Promise<{ token: string }> | null = null;
   private subscriptionStatus: SubscriptionStatus = null;
+  private store: CredentialStore | null;
+  private stored: StoredCredential | null = null;
+  private storedLoaded = false;
+  private refreshPromise: Promise<StoredCredential> | null = null;
 
-  constructor(config?: Config) {
+  /**
+   * @param store Where the OAuth credential lives. `null` means "no stored
+   * credential is available" (hosted mode, where the token arrives in config).
+   */
+  constructor(config?: Config, store: CredentialStore | null = null) {
     this.config = config ?? getConfig();
+    this.store = store;
+  }
+
+  private getStore(): CredentialStore {
+    if (!this.store) {
+      throw new AuthenticationError("No credential store is configured for this server.");
+    }
+    return this.store;
+  }
+
+  /** Load the stored OAuth credential once. Fails closed if the store is unusable. */
+  private async loadStored(): Promise<StoredCredential | null> {
+    if (this.storedLoaded) return this.stored;
+    try {
+      this.stored = await this.getStore().read();
+    } catch (error) {
+      if (error instanceof CredentialStoreError) throw new AuthenticationError(error.message);
+      throw error;
+    }
+    this.storedLoaded = true;
+    if (this.stored) {
+      this.subscriptionStatus = (await detectSubscriptionStatus(this.stored.accessToken)) as SubscriptionStatus;
+    }
+    return this.stored;
+  }
+
+  /**
+   * Refresh tokens rotate on use, so concurrent refreshes would invalidate each
+   * other. Share one in-flight promise, and re-read the store first in case
+   * another process already rotated the credential.
+   */
+  private refreshStored(): Promise<StoredCredential> {
+    if (!this.refreshPromise) {
+      const current = this.stored;
+      if (!current) throw new AuthenticationError("Not signed in. Run `skylight-mcp auth login`.");
+      this.refreshPromise = (async () => {
+        const latest = (await this.getStore().read().catch(() => null)) ?? current;
+        if (!isExpired(latest) && latest.accessToken !== current.accessToken) {
+          this.stored = latest;
+          return latest;
+        }
+        let next: StoredCredential;
+        try {
+          next = await refreshCredential(latest);
+        } catch (error) {
+          if (error instanceof OAuthError) {
+            throw new AuthenticationError(`${error.message} Run \`skylight-mcp auth login\` again.`);
+          }
+          throw error;
+        }
+        this.stored = next;
+        try {
+          await this.getStore().write(next);
+        } catch (error) {
+          // The rotated refresh token is only in memory now; this session keeps working.
+          console.error(`[client] Could not save refreshed credential: ${(error as Error).message}`);
+        }
+        return next;
+      })().finally(() => {
+        this.refreshPromise = null;
+      });
+    }
+    return this.refreshPromise;
   }
 
   /**
@@ -38,14 +112,27 @@ export class SkylightClient {
    * If using email/password auth, will login first
    */
   private async getCredentials(): Promise<{ token: string }> {
-    // If we already have a resolved token, use it
-    if (this.resolvedToken) {
-      return { token: this.resolvedToken };
+    // 1. Explicit token from the environment
+    if (this.config.token) {
+      return { token: this.config.token };
     }
 
-    // If using token-based auth, use the configured token
+    // 2. Stored OAuth credential (refreshed when expired)
+    const stored = this.store ? await this.loadStored() : null;
+    if (stored) {
+      const fresh = isExpired(this.stored ?? stored) ? await this.refreshStored() : (this.stored ?? stored);
+      return { token: fresh.accessToken };
+    }
+
+    // 3. Deprecated email/password login
     if (!usesEmailAuth(this.config)) {
-      return { token: this.config.token! };
+      throw new AuthenticationError(
+        "Not signed in to Skylight. Run `skylight-mcp auth login`, then restart your MCP client."
+      );
+    }
+
+    if (this.resolvedToken) {
+      return { token: this.resolvedToken };
     }
 
     // If already logging in, wait for that to complete
@@ -88,12 +175,8 @@ export class SkylightClient {
   private async getAuthHeader(): Promise<string> {
     const { token } = await this.getCredentials();
 
-    if (usesEmailAuth(this.config)) {
-      return `Bearer ${token}`;
-    }
-
-    // For manual token config, respect the authType setting
-    if (this.config.authType === "basic") {
+    // Only an explicit manual token may use Basic; everything else is a bearer token.
+    if (this.config.token && this.config.authType === "basic") {
       return `Basic ${token}`;
     }
     return `Bearer ${token}`;
@@ -104,6 +187,12 @@ export class SkylightClient {
    */
   private buildUrl(endpoint: string, params?: Record<string, string | boolean | number | undefined>): string {
     const url = new URL(endpoint, SKYLIGHT_BASE_URL);
+
+    // Pin the host: an absolute or protocol-relative endpoint must never
+    // redirect the bearer token to another origin.
+    if (url.origin !== new URL(SKYLIGHT_BASE_URL).origin) {
+      throw new SkylightError("Refusing to send a request outside the Skylight API host.", "HOST_NOT_ALLOWED");
+    }
 
     if (params) {
       for (const [key, value] of Object.entries(params)) {
@@ -127,10 +216,11 @@ export class SkylightClient {
       this.resolvedToken = null;
       console.error(`[client] 401 Unauthorized for ${url}`);
 
-      if (usesEmailAuth(this.config)) {
+      if (!this.config.token) {
         throw new AuthenticationError(
-          "API request returned 401. This may indicate your frame ID is incorrect or doesn't belong to this account. " +
-            "Please verify your SKYLIGHT_FRAME_ID environment variable."
+          "API request returned 401. Your frame ID may be wrong or not belong to this account " +
+            "(check SKYLIGHT_FRAME_ID), or your session may have been revoked " +
+            "(run `skylight-mcp auth login` again)."
         );
       }
       throw new AuthenticationError();
@@ -191,10 +281,11 @@ export class SkylightClient {
     console.error(`[client] Response: ${response.status}`);
 
     if (!response.ok) {
-      // For email/password auth, try re-login once on 401
-      if (response.status === 401 && usesEmailAuth(this.config) && !isRetry) {
-        console.error("[client] Got 401, attempting re-login...");
+      // Retry once on 401 with a fresh credential (not for an explicit token)
+      if (response.status === 401 && !this.config.token && !isRetry) {
+        console.error("[client] Got 401, refreshing credentials...");
         this.resolvedToken = null;
+        if (this.stored) this.stored = { ...this.stored, expiresAt: 0 };
         return this.request<T>(endpoint, options, true);
       }
       await this.handleResponseError(response, url);
@@ -258,22 +349,25 @@ export class SkylightClient {
   }
 }
 
-// Singleton instance
+// Process-wide instance for the single-user stdio server. A hosted server
+// sets a per-request client via runWithContext() instead.
 let clientInstance: SkylightClient | null = null;
 
 export function getClient(): SkylightClient {
+  const context = currentContext();
+  if (context) return context.client;
   if (!clientInstance) {
-    clientInstance = new SkylightClient();
+    throw new AuthenticationError("Skylight client has not been initialized.");
   }
   return clientInstance;
 }
 
 /**
- * Initialize the client singleton and return it
- * This triggers login if using email/password auth
+ * Initialize the process-wide client and return it.
+ * Resolves credentials (and logs in, for the deprecated email/password path).
  */
-export async function initializeClient(): Promise<SkylightClient> {
-  const client = getClient();
-  await client.initialize();
-  return client;
+export async function initializeClient(config?: Config, store: CredentialStore | null = null): Promise<SkylightClient> {
+  clientInstance = new SkylightClient(config, store);
+  await clientInstance.initialize();
+  return clientInstance;
 }

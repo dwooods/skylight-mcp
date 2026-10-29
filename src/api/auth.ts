@@ -341,7 +341,7 @@ async function exchangeAuthorizationCode(code: string, codeVerifier: string): Pr
   return token;
 }
 
-async function detectSubscriptionStatus(token: string): Promise<string | null> {
+export async function detectSubscriptionStatus(token: string): Promise<string | null> {
   try {
     const response = await fetch(`${SKYLIGHT_BASE_URL}/api/plus_access`, {
       method: "GET",
