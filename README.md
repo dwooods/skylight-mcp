@@ -27,8 +27,10 @@ node dist/index.js auth login
 ```
 
 This prints a Skylight sign-in URL. Open it in your browser and sign in. The
-browser ends up on `https://ourskylight.com/welcome?code=...` (the page may look
-blank). Copy that full URL from the address bar, then:
+browser passes through `https://ourskylight.com/welcome?code=...`. Copy that
+full URL from the address bar. If you were already signed in, Skylight redirects
+straight on to your home page; the URL is still in your browser history
+(`Cmd-Y` / `Ctrl-H`, search "welcome"). Then:
 
 ```bash
 node dist/index.js auth complete
@@ -105,7 +107,11 @@ credential; it never silently downgrades to plaintext.
 
 ### Finding your Frame ID
 
-You still need to find your frame ID (the household identifier):
+The frame ID is the household identifier. The easy way: after signing in, the
+Skylight web app lands on `https://ourskylight.com/my-skylight/<number>`. That
+number is your frame ID. Treat it as a secret.
+
+The hard way, if that URL doesn't appear:
 
 1. Use a proxy tool ([Proxyman](https://proxyman.io/), [Charles](https://www.charlesproxy.com/), or [mitmproxy](https://mitmproxy.org/))
 2. Capture any API request from the Skylight app
