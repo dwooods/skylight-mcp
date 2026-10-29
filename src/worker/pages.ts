@@ -57,8 +57,8 @@ export function pastePage(loginUrl: string, state: string): string {
     `<h1>Sign in to Skylight</h1>
 <ol>
   <li><a href="${escape(loginUrl)}" target="_blank" rel="noopener">Open the Skylight sign-in page</a> and sign in. Your password goes to Skylight only; this server never sees it.</li>
-  <li>Skylight sends your browser to <code>https://ourskylight.com/welcome?code=…</code>. Copy that full address. If you were already signed in it flashes past: look in your browser history (<kbd>Cmd-Y</kbd> / <kbd>Ctrl-H</kbd>, search "welcome").</li>
-  <li>Paste it here.</li>
+  <li>Skylight bounces your browser through <code>https://ourskylight.com/welcome?code=…</code> and on to its home page too fast to copy. Get that address from your browser history: <kbd>Cmd-Y</kbd> (Mac) or <kbd>Ctrl-H</kbd>, search <code>welcome?code</code>, right-click the newest <em>Skylight</em> result, <em>Copy link address</em>.</li>
+  <li>Paste it here. It must be from the sign-in you just did; an older one will be rejected.</li>
 </ol>
 <form method="post" action="/callback">
   <input type="hidden" name="state" value="${escape(state)}">

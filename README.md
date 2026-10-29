@@ -27,10 +27,10 @@ node dist/index.js auth login
 ```
 
 This prints a Skylight sign-in URL. Open it in your browser and sign in. The
-browser passes through `https://ourskylight.com/welcome?code=...`. Copy that
-full URL from the address bar. If you were already signed in, Skylight redirects
-straight on to your home page; the URL is still in your browser history
-(`Cmd-Y` / `Ctrl-H`, search "welcome"). Then:
+browser bounces through `https://ourskylight.com/welcome?code=...` and on to
+the Skylight home page too fast to copy. Get it from your browser history:
+`Cmd-Y` (Mac) / `Ctrl-H`, search `welcome?code`, right-click the newest
+Skylight result, Copy link address. Then:
 
 ```bash
 node dist/index.js auth complete
