@@ -3,15 +3,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { loadConfig } from "./config.js";
 import { initializeClient } from "./api/client.js";
-import { registerCalendarTools } from "./tools/calendar.js";
-import { registerChoreTools } from "./tools/chores.js";
-import { registerListTools } from "./tools/lists.js";
-import { registerTaskTools } from "./tools/tasks.js";
-import { registerFamilyTools } from "./tools/family.js";
-import { registerRewardTools } from "./tools/rewards.js";
-import { registerMiscTools } from "./tools/misc.js";
-import { registerMealTools } from "./tools/meals.js";
-import { registerPhotoTools } from "./tools/photos.js";
+import { registerTools } from "./tools/registry.js";
+import { defaultCredentialStore } from "./api/credential-store.js";
 
 /**
  * Create and configure the MCP server
@@ -20,10 +13,10 @@ export async function createServer(): Promise<{
   start: () => Promise<void>;
 }> {
   // Validate configuration before starting
-  loadConfig();
+  const config = loadConfig();
 
   // Initialize client and get subscription status BEFORE tool registration
-  const client = await initializeClient();
+  const client = await initializeClient(config, defaultCredentialStore());
   const hasPlus = client.hasPlus();
 
   const server = new McpServer({
@@ -31,20 +24,7 @@ export async function createServer(): Promise<{
     version: "1.0.0",
   });
 
-  // Register base tools (always available)
-  registerCalendarTools(server);
-  registerChoreTools(server);
-  registerListTools(server);
-  registerTaskTools(server);
-  registerFamilyTools(server);
-  registerMiscTools(server);
-
-  // Register Plus-only tools (hidden for non-Plus users)
-  if (hasPlus) {
-    registerRewardTools(server);
-    registerMealTools(server);
-    registerPhotoTools(server);
-  }
+  registerTools(server, { hasPlus });
 
   return {
     start: async () => {

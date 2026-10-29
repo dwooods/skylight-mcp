@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { currentContext } from "./context.js";
 
 // Auth sources, in the order the client tries them (see SkylightClient):
 // 1. SKYLIGHT_TOKEN - explicit token from the environment
@@ -76,6 +77,8 @@ To find your frame ID:
 let cachedConfig: Config | null = null;
 
 export function getConfig(): Config {
+  const context = currentContext();
+  if (context) return context.config;
   if (!cachedConfig) {
     cachedConfig = loadConfig();
   }

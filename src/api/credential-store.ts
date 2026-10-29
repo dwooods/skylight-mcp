@@ -19,7 +19,10 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os";
 import path from "node:path";
 import { SKYLIGHT_BASE_URL } from "./constants.js";
-import { parseStoredCredential, type PendingLogin, type StoredCredential } from "./oauth.js";
+import { CredentialStoreError, type CredentialStore } from "./credential-types.js";
+import { parseStoredCredential, type PendingLogin } from "./oauth.js";
+
+export { CredentialStoreError, type CredentialStore };
 
 const KEYCHAIN_SERVICE = "skylight-mcp.encryption-key";
 const KEYCHAIN_LABEL = "skylight-mcp";
@@ -27,20 +30,6 @@ const KEYCHAIN_TIMEOUT_MS = 15_000;
 const CREDENTIAL_FILE = "credential.json";
 const ENCRYPTED_FILE = "credential.enc.json";
 const PENDING_FILE = "pending-login.json";
-
-export class CredentialStoreError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "CredentialStoreError";
-  }
-}
-
-export interface CredentialStore {
-  readonly name: string;
-  read(): Promise<StoredCredential | null>;
-  write(credential: StoredCredential): Promise<void>;
-  delete(): Promise<boolean>;
-}
 
 export function defaultConfigDirectory(): string {
   if (process.platform === "darwin") {
