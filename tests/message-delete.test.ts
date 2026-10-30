@@ -103,10 +103,20 @@ describe("delete_message", () => {
     expect(() => assertNudgeId("76667/../x")).toThrow();
   });
 
-  it("is not offered on the hosted server", async () => {
+  it("is offered on the hosted server, and no other destructive tool is", async () => {
     const res = await handleMcpRequest(rpc("tools/list", {}), props, "t");
-    const names = ((await res.json()) as { result: { tools: Array<{ name: string }> } }).result.tools.map((t) => t.name);
-    expect(names).not.toContain("delete_message");
-    expect(names).toContain("send_message");
+    const tools = ((await res.json()) as { result: { tools: Array<{ name: string; annotations?: { destructiveHint?: boolean } }> } }).result.tools;
+    const destructive = tools.filter((t) => t.annotations?.destructiveHint).map((t) => t.name);
+    expect(destructive).toEqual(["delete_message"]);
+    expect(tools.map((t) => t.name)).toContain("send_message");
+  });
+
+  it("works through the hosted server: bodyless DELETE to the pinned host, read back", async () => {
+    const seen = stub(false);
+    const res = await handleMcpRequest(rpc("tools/call", { name: "delete_message", arguments: { messageId: "76667", confirm: true } }), props, "t");
+    const json = (await res.json()) as { result: { content: Array<{ text: string }>; isError?: boolean } };
+    expect(json.result.isError).not.toBe(true);
+    expect(seen.find((s) => s.method === "DELETE")!.url).toBe("https://app.ourskylight.com/api/frames/frame-1/nudges/76667");
+    expect(json.result.content[0]!.text).toContain("Confirmed gone");
   });
 });
