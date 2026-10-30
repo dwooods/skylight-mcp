@@ -45,7 +45,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dwooods/skylight-mcp.git"
+    "url": "git+https://github.com/dwooods/skylight-mcp.git"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.4",
