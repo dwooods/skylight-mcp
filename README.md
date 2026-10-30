@@ -199,11 +199,12 @@ say "use the local Skylight server" when you do.
 ```bash
 npm install
 npx wrangler login
-npx wrangler kv namespace create OAUTH_KV        # let it add the id to wrangler.jsonc
+cp wrangler.jsonc wrangler.local.jsonc            # gitignored: your real IDs live only here
+npx wrangler kv namespace create OAUTH_KV         # paste the id into wrangler.local.jsonc, not wrangler.jsonc
 npx wrangler secret put SETUP_PASSPHRASE          # 12+ chars; required to link an account
-npx wrangler deploy                               # prints the Worker's URL
-npx wrangler secret put WORKER_URL                # paste that URL (origin only, no path)
-npx wrangler deploy
+npm run worker:deploy:local                       # prints the Worker's URL
+npx wrangler secret put WORKER_URL -c wrangler.local.jsonc   # paste that URL (origin only, no path)
+npm run worker:deploy:local
 ```
 
 `WORKER_URL` must be exactly the public origin of the Worker; every token is

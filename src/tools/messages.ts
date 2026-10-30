@@ -76,7 +76,7 @@ Check get_messages first to avoid posting a duplicate.`,
       body: z.string().min(1).max(300).describe("Message text, up to 300 characters."),
       readAloud: z.boolean().optional().describe("Speak the message on the frame when delivered. Default false."),
       from: z.string().optional().describe("Optional sender profile name, e.g. a family member. Omit for no sender."),
-      to: z.array(z.string()).optional().describe("Profile names to send to (see get_family_members), e.g. [\"Dave\"]. Omit to send to everyone."),
+      to: z.array(z.string()).optional().describe("Profile names to send to (see get_family_members), e.g. [\"Jordan\"]. Omit to send to everyone."),
       confirm: z.boolean().optional().describe("Must be true to actually post. Default false: preview only."),
     },
     async ({ body, readAloud, from, to, confirm }) => {

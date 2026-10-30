@@ -27,8 +27,8 @@ const chores = {
     { id: "c3", type: "chore", attributes: { summary: "Clean room", status: "pending", start: "2026-10-30", start_time: null }, relationships: { category: { data: { type: "category", id: "k1" } } } },
   ],
   included: [
-    { id: "k1", type: "category", attributes: { label: "Ben" } },
-    { id: "k2", type: "category", attributes: { label: "Brady" } },
+    { id: "k1", type: "category", attributes: { label: "Alex" } },
+    { id: "k2", type: "category", attributes: { label: "Sam" } },
   ],
 };
 const categories = { data: [{ id: "12", type: "meal_category", attributes: { label: "Dinner" } }, { id: "10", type: "meal_category", attributes: { label: "Breakfast" } }] };
@@ -79,13 +79,13 @@ describe("get_week_overview", () => {
     expect(isError).toBeFalsy();
     expect(out).toContain("Tue, Nov 3");
     expect(out).toContain("3:30 PM–5:30 PM: Tryouts");
-    expect(out).toContain("chore [ ] Empty dishwasher (Ben), 5 pts [chore ID: c1]");
-    expect(out).toContain("chore [x] Trash out (Brady) at 18:00");
+    expect(out).toContain("chore [ ] Empty dishwasher (Alex), 5 pts [chore ID: c1]");
+    expect(out).toContain("chore [x] Trash out (Sam) at 18:00");
     expect(out).toContain("dinner: Thai green curry");
     expect(out).toContain("all day: Robert bday");
     expect(out).toContain('"Healdsburg" and "Bball pics" overlap 5:00 PM–7:00 PM');
     expect(out).toContain("Overdue chores:");
-    expect(out).toContain("Clean room (Ben)");
+    expect(out).toContain("Clean room (Alex)");
     expect(out).toContain("Groceries (shopping, default grocery): 1 pending: Milk");
     expect(out).not.toContain("example.com");
     expect(out).not.toContain("group.calendar.google.com");

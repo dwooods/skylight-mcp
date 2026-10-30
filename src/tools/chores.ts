@@ -37,7 +37,7 @@ Returns chores with their assignees, due dates, and completion status.`,
       assignee: z
         .string()
         .optional()
-        .describe("Filter by family member name (e.g., 'Dad', 'Mom')"),
+        .describe("Filter by family member name (e.g., 'Casey', 'Mom')"),
       status: z
         .enum(["pending", "completed", "all"])
         .optional()
@@ -163,7 +163,7 @@ The chore will appear on the Skylight display.`,
       assignee: z
         .string()
         .optional()
-        .describe("Family member to assign (e.g., 'Dad', 'Mom', 'Kids')"),
+        .describe("Family member to assign (e.g., 'Casey', 'Mom', 'Kids')"),
       recurring: z
         .boolean()
         .optional()
@@ -271,7 +271,7 @@ The chore will appear on the Skylight display.`,
 
 Use this when:
 - Marking a chore as complete: "Mark 'dishes' as done"
-- Changing chore assignment: "Reassign the trash to Dad"
+- Changing chore assignment: "Reassign the trash to Casey"
 - Updating chore details: "Change the time for the homework chore"
 
 Parameters:

@@ -20,7 +20,7 @@ const nudges = {
     { id: "n1", type: "nudge", attributes: { body: "Have a great day", deliver_at: "2026-10-30T00:01:22.763Z", all_profiles: true, all_devices: false, recurring: true, audio_url: SIGNED }, relationships: { categories: { data: [] }, sender_category: { data: null }, devices: { data: [{ type: "device", id: "d1" }] } } },
   ],
 };
-const categories = { data: [{ id: "k1", type: "category", attributes: { label: "Ben" } }, { id: "k2", type: "category", attributes: { label: "Dad" } }] };
+const categories = { data: [{ id: "k1", type: "category", attributes: { label: "Alex" } }, { id: "k2", type: "category", attributes: { label: "Casey" } }] };
 
 function call(args: Record<string, unknown>): Request {
   return new Request("https://w.example/mcp", {
@@ -56,7 +56,7 @@ describe("get_messages", () => {
     expect(decodeURIComponent(nudgeUrl)).toContain("before=2026-10-29T23:59:59.999-07:00");
 
     expect(out).toContain('5:01 PM: "Have a great day" (to everyone, recurring, selected devices) [message ID: n1]');
-    expect(out).toContain('5:03 PM: "Dinner at 6" (to Ben, from Dad) [message ID: n2]');
+    expect(out).toContain('5:03 PM: "Dinner at 6" (to Alex, from Casey) [message ID: n2]');
     expect(out.indexOf("n1")).toBeLessThan(out.indexOf("n2"));
     expect(out).not.toContain("SECRET");
     expect(out).not.toContain("amazonaws");
@@ -105,7 +105,7 @@ describe("send_message", () => {
   it("resolves the sender by name and only speaks when asked", async () => {
     const posts: Array<{ url: string; body: Record<string, unknown> }> = [];
     stub(posts);
-    await run("send_message", { body: "Hi", from: "dad", readAloud: true, confirm: true });
+    await run("send_message", { body: "Hi", from: "casey", readAloud: true, confirm: true });
     expect(posts[0].body).toMatchObject({ sender_category_id: "k2", voice_kind: "kirk_voice" });
   });
 
@@ -115,7 +115,7 @@ describe("send_message", () => {
     const unknown = await run("send_message", { body: "Hi", from: "Nobody" });
     expect(unknown.isError).toBe(true);
     expect(unknown.text).toContain("No profile called");
-    expect(unknown.text).toContain("Ben, Dad");
+    expect(unknown.text).toContain("Alex, Casey");
     const long = await run("send_message", { body: "x".repeat(301) });
     expect(long.isError).toBe(true);
     const blank = await run("send_message", { body: "   " });
@@ -126,11 +126,11 @@ describe("send_message", () => {
   it("previews without posting unless confirm is exactly true", async () => {
     const posts: Array<{ url: string; body: Record<string, unknown> }> = [];
     stub(posts);
-    const preview = await run("send_message", { body: "Dinner at 6", from: "Dad" });
+    const preview = await run("send_message", { body: "Dinner at 6", from: "Casey" });
     expect(preview.isError).toBeFalsy();
     expect(preview.text).toContain("NOT SENT");
     expect(preview.text).toContain('"Dinner at 6"');
-    expect(preview.text).toContain("from Dad");
+    expect(preview.text).toContain("from Casey");
     const explicitFalse = await run("send_message", { body: "Dinner at 6", confirm: false });
     expect(explicitFalse.text).toContain("NOT SENT");
     expect(posts).toHaveLength(0);
