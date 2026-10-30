@@ -5,10 +5,18 @@ export interface MealCategoryResource {
   type: "meal_category";
   id: string;
   attributes: {
+    /** Skylight calls the display name `label`; older code assumed `name`. */
+    label?: string;
     name?: string;
+    color?: string;
     position?: number;
     [key: string]: unknown;
   };
+}
+
+/** Display name of a meal category, whichever field the API used. */
+export function mealCategoryName(category: MealCategoryResource): string {
+  return category.attributes.label ?? category.attributes.name ?? "Unnamed";
 }
 
 export interface MealRecipeResource {
@@ -30,12 +38,19 @@ export interface MealSittingResource {
   type: "meal_sitting";
   id: string;
   attributes: {
+    /** Free-text meal name, e.g. "Thai green curry". May be empty when a recipe is linked. */
+    summary?: string | null;
+    /** Dates (YYYY-MM-DD) this sitting appears on. */
+    instances?: string[];
     date?: string;
     meal_time?: string;
     [key: string]: unknown;
   };
   relationships?: {
     meal_recipe?: {
+      data: { type: string; id: string } | null;
+    };
+    meal_category?: {
       data: { type: string; id: string } | null;
     };
   };
@@ -197,6 +212,8 @@ export async function getMealSittings(
 export interface CreateMealSittingOptions {
   date: string;
   mealCategoryId: string;
+  /** Free-text meal name. Either this or recipeId should be given. */
+  summary?: string;
   recipeId?: string;
 }
 
@@ -211,13 +228,19 @@ export async function createMealSitting(
     date: options.date,
     meal_category_id: options.mealCategoryId,
   };
+  if (options.summary) {
+    body.summary = options.summary;
+  }
   if (options.recipeId) {
     body.meal_recipe_id = options.recipeId;
   }
 
-  const response = await client.post<{ data: MealSittingResource }>(
+  // The API answers a create with a list envelope (one element), unlike GET by id.
+  const response = await client.post<{ data: MealSittingResource | MealSittingResource[] }>(
     "/api/frames/{frameId}/meals/sittings",
     body
   );
-  return response.data;
+  const data = Array.isArray(response.data) ? response.data[0] : response.data;
+  if (!data) throw new Error("Skylight returned an empty response when creating the meal sitting");
+  return data;
 }
