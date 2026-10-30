@@ -154,3 +154,16 @@ export async function updateNudge(options: UpdateNudgeOptions): Promise<void> {
     apiVersion: NUDGES_API_VERSION,
   });
 }
+
+/**
+ * Delete a message: DELETE /nudges/{id}. The Skylight web app offers no delete
+ * button, so this call is taken from two other open-source clients and has not
+ * been confirmed against this account's API version until a live run says so.
+ * Returns the HTTP outcome only; callers must read back to confirm removal.
+ */
+export async function deleteNudge(existing: NudgeResource): Promise<void> {
+  await getClient().request(`/api/frames/{frameId}/nudges/${assertNudgeId(existing.id)}`, {
+    method: "DELETE",
+    apiVersion: NUDGES_API_VERSION,
+  });
+}
