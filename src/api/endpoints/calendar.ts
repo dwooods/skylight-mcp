@@ -1,4 +1,6 @@
 import { getClient } from "../client.js";
+import { isoWithOffset } from "./messages.js";
+import { zonedToEpoch } from "../../utils/schedule.js";
 import type {
   CalendarEventsResponse,
   CalendarEventResource,
@@ -97,4 +99,17 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
   await client.request(`/api/frames/{frameId}/calendar_events/${eventId}`, {
     method: "DELETE",
   });
+}
+
+/**
+ * Skylight reads a start/end time with no offset as UTC, even when a timezone is
+ * sent, so "08:00" landed at 01:00 Pacific. Give a local wall-clock time the
+ * frame zone's offset. Times that already carry Z or an offset, and date-only
+ * values (all-day events), pass through unchanged.
+ */
+export function withFrameOffset(value: string, timeZone: string): string {
+  const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2}))?$/.exec(value.trim());
+  if (!m) return value;
+  const seconds = m[3] ? Number(m[3]) : 0;
+  return isoWithOffset(zonedToEpoch(m[1]!, m[2]!, timeZone) + seconds * 1000, timeZone);
 }

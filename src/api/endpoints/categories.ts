@@ -54,3 +54,34 @@ export async function getChoreChartCategories(): Promise<CategoryResource[]> {
   const categories = await getCategories();
   return categories.filter((cat) => cat.attributes.selected_for_chore_chart);
 }
+
+/**
+ * Turn profile names into category IDs. Exact match, case-insensitive, no partial
+ * matching: findCategoryByName would treat "Ben" as a match for any longer name.
+ * Unknown names fail with the valid list so nothing is ever sent to a guess.
+ */
+export async function resolveProfileIds(names: string[]): Promise<{ ids: string[]; labels: string[] }> {
+  const wanted = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
+  if (wanted.length === 0) throw new Error("Give at least one profile name.");
+  const all = await getCategories();
+  const linked = all.filter((c) => c.attributes.linked_to_profile);
+  const pool = linked.length > 0 ? linked : all;
+  const ids: string[] = [];
+  const labels: string[] = [];
+  for (const name of wanted) {
+    const hits = pool.filter((c) => c.attributes.label?.toLowerCase() === name.toLowerCase());
+    if (hits.length !== 1) {
+      const known = pool.map((c) => c.attributes.label).filter(Boolean).join(", ");
+      throw new Error(
+        hits.length === 0
+          ? `No profile called "${name}". Profiles: ${known}.`
+          : `"${name}" matches ${hits.length} profiles; rename one in Skylight. Profiles: ${known}.`
+      );
+    }
+    if (!ids.includes(hits[0]!.id)) {
+      ids.push(hits[0]!.id);
+      labels.push(hits[0]!.attributes.label ?? name);
+    }
+  }
+  return { ids, labels };
+}

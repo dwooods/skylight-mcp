@@ -7,10 +7,12 @@ import {
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
+  withFrameOffset,
 } from "../api/endpoints/calendar.js";
 import { getTodayDate, parseDate, formatDateForDisplay } from "../utils/dates.js";
 import { formatErrorForMcp } from "../utils/errors.js";
 import { getConfig } from "../config.js";
+import { resolveProfileIds } from "../api/endpoints/categories.js";
 
 export function registerCalendarTools(server: McpServer): void {
   // get_calendar_events tool
@@ -185,11 +187,11 @@ Parameters:
 - allDay: Set to true for all-day events
 - description: Additional notes for the event
 - location: Where the event takes place
-- categoryIds: Family member IDs to associate with the event
+- profiles: Profile names to assign (e.g. ["Ben"]); categoryIds is the ID fallback
 
 Returns: The created event details.
 
-Related: Use get_family_members to get category IDs for assignments.`,
+Related: get_family_members lists the profile names and IDs.`,
     {
       summary: z.string().describe("Event title (e.g., 'Dentist Appointment')"),
       startsAt: z.string().describe("Start time (ISO format like '2025-01-15T14:00:00')"),
@@ -197,19 +199,22 @@ Related: Use get_family_members to get category IDs for assignments.`,
       allDay: z.boolean().optional().default(false).describe("True for all-day events"),
       description: z.string().optional().describe("Additional notes for the event"),
       location: z.string().optional().describe("Event location"),
-      categoryIds: z.array(z.string()).optional().describe("Family member IDs to assign"),
+      profiles: z.array(z.string()).optional().describe("Profile names to assign, e.g. [\"Ben\", \"Dave\"] (see get_family_members)."),
+      categoryIds: z.array(z.string()).optional().describe("Profile IDs to assign. Prefer profiles."),
     },
-    async ({ summary, startsAt, endsAt, allDay, description, location, categoryIds }) => {
+    async ({ summary, startsAt, endsAt, allDay, description, location, profiles, categoryIds }) => {
       try {
         const config = getConfig();
+        if (profiles?.length && categoryIds?.length) throw new Error("Give profiles or categoryIds, not both.");
+        const resolved = profiles?.length ? (await resolveProfileIds(profiles)).ids : categoryIds;
         const event = await createCalendarEvent({
           summary,
-          starts_at: startsAt,
-          ends_at: endsAt,
+          starts_at: withFrameOffset(startsAt, config.timezone),
+          ends_at: withFrameOffset(endsAt, config.timezone),
           all_day: allDay,
           description,
           location,
-          category_ids: categoryIds,
+          category_ids: resolved,
           timezone: config.timezone,
           kind: "standard",
         });
@@ -259,18 +264,22 @@ Returns: The updated event details.`,
       allDay: z.boolean().optional().describe("Change to all-day event"),
       description: z.string().optional().describe("Updated notes"),
       location: z.string().optional().describe("Updated location"),
-      categoryIds: z.array(z.string()).optional().describe("Updated family member assignments"),
+      profiles: z.array(z.string()).optional().describe("Profile names to assign instead of the current ones, e.g. [\"Ben\"]."),
+      categoryIds: z.array(z.string()).optional().describe("Profile IDs to assign. Prefer profiles."),
     },
-    async ({ eventId, summary, startsAt, endsAt, allDay, description, location, categoryIds }) => {
+    async ({ eventId, summary, startsAt, endsAt, allDay, description, location, profiles, categoryIds }) => {
       try {
+        if (profiles?.length && categoryIds?.length) throw new Error("Give profiles or categoryIds, not both.");
         const updates: Record<string, unknown> = {};
         if (summary !== undefined) updates.summary = summary;
-        if (startsAt !== undefined) updates.starts_at = startsAt;
-        if (endsAt !== undefined) updates.ends_at = endsAt;
+        const tz = getConfig().timezone;
+        if (startsAt !== undefined) updates.starts_at = withFrameOffset(startsAt, tz);
+        if (endsAt !== undefined) updates.ends_at = withFrameOffset(endsAt, tz);
         if (allDay !== undefined) updates.all_day = allDay;
         if (description !== undefined) updates.description = description;
         if (location !== undefined) updates.location = location;
-        if (categoryIds !== undefined) updates.category_ids = categoryIds;
+        if (profiles?.length) updates.category_ids = (await resolveProfileIds(profiles)).ids;
+        else if (categoryIds !== undefined) updates.category_ids = categoryIds;
 
         const event = await updateCalendarEvent(eventId, updates);
 
