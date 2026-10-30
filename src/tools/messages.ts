@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { assertNudgeId, createNudge, deleteNudge, findNudge, getNudges, updateNudge, type NudgeResource } from "../api/endpoints/messages.js";
-import { getCategories, findCategoryByName } from "../api/endpoints/categories.js";
+import { getCategories, findCategoryByName, resolveProfileIds } from "../api/endpoints/categories.js";
 import { getConfig } from "../config.js";
 import { parseDate, getDateOffset } from "../utils/dates.js";
 import { dateInZone, formatDay, formatTime } from "../utils/schedule.js";
@@ -60,7 +60,7 @@ Defaults to the last 7 days through the next 7 days. Max 31 days.`,
   );
   server.tool(
     "send_message",
-    `Post a message to the family frame (shown to everyone, on all devices, now).
+    `Post a message to the family frame now, on all devices. Shown to everyone unless "to" names profiles.
 
 PERMANENT in practice: the Skylight app has no way to delete a message (delete_message
 is experimental), and it appears on the family frame for the whole
@@ -76,12 +76,15 @@ Check get_messages first to avoid posting a duplicate.`,
       body: z.string().min(1).max(300).describe("Message text, up to 300 characters."),
       readAloud: z.boolean().optional().describe("Speak the message on the frame when delivered. Default false."),
       from: z.string().optional().describe("Optional sender profile name, e.g. a family member. Omit for no sender."),
+      to: z.array(z.string()).optional().describe("Profile names to send to (see get_family_members), e.g. [\"Dave\"]. Omit to send to everyone."),
       confirm: z.boolean().optional().describe("Must be true to actually post. Default false: preview only."),
     },
-    async ({ body, readAloud, from, confirm }) => {
+    async ({ body, readAloud, from, to, confirm }) => {
       try {
         const text = body.trim();
         if (!text) throw new Error("Message is empty.");
+        const recipients = to && to.length > 0 ? await resolveProfileIds(to) : undefined;
+        const audience = recipients ? recipients.labels.join(", ") : "everyone";
         let senderCategoryId: string | undefined;
         if (from) {
           const match = await findCategoryByName(from);
@@ -97,15 +100,15 @@ Check get_messages first to avoid posting a duplicate.`,
             content: [
               {
                 type: "text" as const,
-                text: `NOT SENT. Preview: would post to everyone on all devices${who}${readAloud ? ", read aloud" : ", silent"}: "${text}"\n\nDeleting a message afterwards is experimental. If the user approves this exact text, call send_message again with confirm: true.`,
+                text: `NOT SENT. Preview: would post to ${audience} on all devices${who}${readAloud ? ", read aloud" : ", silent"}: "${text}"\n\nDeleting a message afterwards is experimental. If the user approves this exact text, call send_message again with confirm: true.`,
               },
             ],
           };
         }
-        const sent = await createNudge({ body: text, readAloud: readAloud === true, senderCategoryId, timeZone: getConfig().timezone });
+        const sent = await createNudge({ body: text, readAloud: readAloud === true, senderCategoryId, recipientCategoryIds: recipients?.ids, timeZone: getConfig().timezone });
         const id = sent?.id ? ` [message ID: ${sent.id}]` : "";
         return {
-          content: [{ type: "text" as const, text: `Posted to the frame${who}${readAloud ? " (read aloud)" : ""}: "${text}"${id}` }],
+          content: [{ type: "text" as const, text: `Posted to the frame${recipients ? ` for ${audience}` : ""}${who}${readAloud ? " (read aloud)" : ""}: "${text}"${id}` }],
         };
       } catch (error) {
         return { content: [{ type: "text" as const, text: formatErrorForMcp(error) }], isError: true };
