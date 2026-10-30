@@ -141,6 +141,11 @@ export interface CalendarEventResource {
   type: "calendar_event";
   id: string;
   attributes: CalendarEventAttributes;
+  // Shape inferred from how nudges and chores carry their profiles; not yet seen on a real event.
+  relationships?: {
+    categories?: { data?: Array<{ id: string }> | null };
+    category?: { data?: { id: string } | null };
+  };
 }
 
 // Device types

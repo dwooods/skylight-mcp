@@ -12,7 +12,45 @@ import {
 import { getTodayDate, parseDate, formatDateForDisplay } from "../utils/dates.js";
 import { formatErrorForMcp } from "../utils/errors.js";
 import { getConfig } from "../config.js";
-import { resolveProfileIds } from "../api/endpoints/categories.js";
+import { getCategories, resolveProfileIds } from "../api/endpoints/categories.js";
+import type { CalendarEventResource } from "../api/types.js";
+
+// Fields the event listing carries that identify people or accounts and tell a model nothing it
+// can act on. Everything else is still printed, so new Skylight fields show up without a code change.
+const HIDDEN_EVENT_FIELDS = new Set([
+  "owner_email",
+  "calendar_id",
+  "calendar_account_id",
+  "invited_emails",
+  "uid",
+  "supports_notification_settings",
+]);
+
+/** Profile names an event is assigned to, or [] when none or not determinable. */
+export function eventProfileNames(
+  event: CalendarEventResource,
+  labelById: Map<string, string>
+): string[] {
+  const ids = new Set<string>();
+  for (const ref of event.relationships?.categories?.data ?? []) if (ref?.id) ids.add(String(ref.id));
+  const single = event.relationships?.category?.data?.id;
+  if (single) ids.add(String(single));
+  const fromAttrs = event.attributes.category_ids;
+  if (Array.isArray(fromAttrs)) for (const id of fromAttrs) ids.add(String(id));
+  return [...ids].map((id) => labelById.get(id)).filter((n): n is string => Boolean(n));
+}
+
+/** One event as text: no emails, calendar ids or UIDs, and the assigned profiles when known. */
+export function formatEventForTool(event: CalendarEventResource, labelById: Map<string, string>): string {
+  const parts: string[] = [];
+  const who = eventProfileNames(event, labelById);
+  if (who.length) parts.push(`  profiles: ${who.join(", ")}`);
+  for (const [key, value] of Object.entries(event.attributes)) {
+    if (HIDDEN_EVENT_FIELDS.has(key)) continue;
+    if (value !== null && value !== undefined) parts.push(`  ${key}: ${value}`);
+  }
+  return `- Event (ID: ${event.id})\n${parts.join("\n")}`;
+}
 
 export function registerCalendarTools(server: McpServer): void {
   // get_calendar_events tool
@@ -63,22 +101,14 @@ Returns a list of events with their titles, times, and details.`,
           };
         }
 
-        // Format events for display
-        const eventList = events
-          .map((event) => {
-            const attrs = event.attributes;
-            const parts: string[] = [];
-
-            // Add all available attributes
-            for (const [key, value] of Object.entries(attrs)) {
-              if (value !== null && value !== undefined) {
-                parts.push(`  ${key}: ${value}`);
-              }
-            }
-
-            return `- Event (ID: ${event.id})\n${parts.join("\n")}`;
-          })
-          .join("\n\n");
+        // Profile names are a best-effort extra: a failed lookup must not hide the events.
+        const labelById = new Map<string, string>();
+        try {
+          for (const c of await getCategories()) if (c.attributes.label) labelById.set(String(c.id), c.attributes.label);
+        } catch {
+          /* leave empty */
+        }
+        const eventList = events.map((event) => formatEventForTool(event, labelById)).join("\n\n");
 
         const dateRange =
           startDate === endDate
