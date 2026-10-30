@@ -24,14 +24,15 @@ function rpc(body: unknown): Request {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("hosted MCP handler", () => {
-  it("lists only read/write tools, no deletes, no photos", async () => {
+  it("lists read/write tools plus only the allowlisted delete, no photos", async () => {
     const res = await handleMcpRequest(rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }), props, "test");
     expect(res.status).toBe(200);
     const json = (await res.json()) as { result: { tools: Array<{ name: string; annotations?: Record<string, boolean> }> } };
     const names = json.result.tools.map((t) => t.name);
     expect(names).toContain("get_calendar_events");
     expect(names).toContain("create_calendar_event");
-    expect(names.some((n) => n.startsWith("delete_"))).toBe(false);
+    // Every delete tool except the deliberately allowlisted one stays off the hosted server.
+    expect(names.filter((n) => n.startsWith("delete_"))).toEqual(["delete_message"]);
     expect(names).not.toContain("get_albums");
     const get = json.result.tools.find((t) => t.name === "get_calendar_events")!;
     expect(get.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });

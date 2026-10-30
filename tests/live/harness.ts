@@ -4,8 +4,9 @@
  * Safety properties (each has a test in tests/live-guard.test.ts or is
  * enforced here):
  * - Nothing runs unless SKYLIGHT_LIVE=1.
- * - Message tools are denied: a message cannot be deleted and shows on the
- *   family's wall display. Allowing them is a deliberate edit of DENIED_TOOLS.
+ * - Message tools are denied: a message shows on the family's wall display the
+ *   moment it is sent, before any cleanup could run. Allowing them is a
+ *   deliberate edit of DENIED_TOOLS.
  * - Photo tools are never registered.
  * - Credentials come from the normal sources (Keychain-backed store or env),
  *   are never printed, and nothing here writes them anywhere. If the store is
@@ -31,11 +32,11 @@ export function liveEnabled(): boolean {
 export const LIVE_PREFIX = "[live-test] ";
 
 /** Tools the live suite may never call. */
-export const DENIED_TOOLS: ReadonlySet<string> = new Set(["send_message", "update_message"]);
+export const DENIED_TOOLS: ReadonlySet<string> = new Set(["send_message", "update_message", "delete_message"]);
 
 export function assertToolAllowed(name: string): void {
   if (DENIED_TOOLS.has(name)) {
-    throw new Error(`Live tests may not call ${name}: it changes what the family sees and cannot be undone.`);
+    throw new Error(`Live tests may not call ${name}: it changes what the family sees and a message cannot be reliably undone.`);
   }
 }
 

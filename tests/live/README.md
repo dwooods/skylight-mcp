@@ -62,10 +62,11 @@ its tag with `LIVE_SKIP_TAGS`.
 1. **Throwaway data only.** Name anything you create with `LIVE_PREFIX`, put it
    far from real plans (the meal test uses 75 days out), and register an
    `onCleanup` that removes it even if an assertion fails.
-2. **No messages.** `send_message` and `update_message` are denied by the
-   harness. A message cannot be deleted and shows on the family's wall. Allowing
-   them is a deliberate edit of `DENIED_TOOLS` in `harness.ts`, plus a test
-   that says why.
+2. **No messages.** `send_message`, `update_message` and `delete_message` are
+   denied by the harness. A message shows on the family's wall and is seen by
+   people before any cleanup runs; `delete_message` exists but was only verified
+   once by hand. Allowing them is a deliberate edit of `DENIED_TOOLS` in
+   `harness.ts`, plus a test that says why.
 3. **Verify by reading back**, not by trusting a success message.
 4. **Never print or store** tokens, frame IDs, emails or family names. Assert on
    shapes and counts, not on real content.

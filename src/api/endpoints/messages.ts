@@ -71,6 +71,8 @@ export interface CreateNudgeOptions {
   readAloud?: boolean;
   /** Profile (category) id shown as the sender. Omitted when not given. */
   senderCategoryId?: string;
+  /** Send only to these profile (category) ids. Omitted means everyone. */
+  recipientCategoryIds?: string[];
   timeZone: string;
 }
 
@@ -81,16 +83,20 @@ interface CreateNudgeResponse {
 /**
  * Send a message to every profile and every device, delivered now.
  * Payload shape is from the web app's "Send Now" call. Targeting specific
- * profiles or devices, and scheduling, are not captured yet and not offered.
+ * profiles is inferred from how Skylight stores a message sent to one profile
+ * (all_profiles false plus that profile in categories) and from another open
+ * source client that sends category_ids; the POST itself has not been captured.
+ * Targeting devices and scheduling are not offered.
  */
 export async function createNudge(options: CreateNudgeOptions): Promise<NudgeResource | null> {
   const payload: Record<string, unknown> = {
     body: options.body,
     deliver_at: isoWithOffset(Date.now(), options.timeZone),
-    all_profiles: true,
+    all_profiles: !options.recipientCategoryIds?.length,
     all_devices: true,
     voice_kind: options.readAloud ? "kirk_voice" : "silent",
   };
+  if (options.recipientCategoryIds?.length) payload.category_ids = options.recipientCategoryIds;
   if (options.senderCategoryId) payload.sender_category_id = options.senderCategoryId;
   const response = await getClient().request<CreateNudgeResponse>("/api/frames/{frameId}/nudges", {
     method: "POST",
@@ -151,6 +157,19 @@ export async function updateNudge(options: UpdateNudgeOptions): Promise<void> {
   await getClient().request(`/api/frames/{frameId}/nudges/${assertNudgeId(existing.id)}`, {
     method: "PATCH",
     body: payload,
+    apiVersion: NUDGES_API_VERSION,
+  });
+}
+
+/**
+ * Delete a message: DELETE /nudges/{id}. The Skylight web app offers no delete
+ * button, so this call is taken from two other open-source clients and has not
+ * been confirmed against this account's API version until a live run says so.
+ * Returns the HTTP outcome only; callers must read back to confirm removal.
+ */
+export async function deleteNudge(existing: NudgeResource): Promise<void> {
+  await getClient().request(`/api/frames/{frameId}/nudges/${assertNudgeId(existing.id)}`, {
+    method: "DELETE",
     apiVersion: NUDGES_API_VERSION,
   });
 }

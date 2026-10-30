@@ -12,11 +12,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Live test suite** (`npm run test:live`, development only). Real tools against a
   real frame, to catch drift in Skylight's undocumented API that mocked tests
   cannot see. Off unless `SKYLIGHT_LIVE=1`, never part of `npm test` or CI, and
-  the harness refuses `send_message` and `update_message`. One suite per file in
+  the harness refuses `send_message`, `update_message` and `delete_message`. One suite per file in
   `tests/live/`, filterable by tag. First suites: read smoke checks,
   response-shape contract checks, write guards and a meal
   create/rename/move/delete round trip with guaranteed cleanup. A normal-suite
   test checks that every live file is gated.
+
+## [1.6.0] - 2026-10-30
+
+### Added
+
+- **Messages**: `delete_message` (destructive) deletes a message with
+  `DELETE /nudges/{id}`. The Skylight app has no delete button for messages; the
+  call comes from other open-source clients and was verified on a real frame.
+  It previews unless `confirm: true`, reads the list back and reports success only
+  if the message is gone. It is available on the hosted server too, through a
+  per-tool allowlist, and is the only destructive tool the hosted server offers.
+- **Profiles**: `get_family_members` prints profile IDs. `send_message` takes
+  `to` (profile names) to send to specific people, and `create_calendar_event`
+  and `update_calendar_event` take `profiles`. Names are matched exactly
+  (case-insensitive, no prefix matching); an unknown name fails with the list of
+  valid names and sends nothing.
+- README: a support matrix, a Not supported list, a Skylight API calls table, and
+  a test that fails if a tool is missing from the README or its effect differs.
+
+### Fixed
+
+- **Event times were stored 7 hours early.** A start or end time with no UTC
+  offset was read by Skylight as UTC, so 8:00 AM was stored as 1:00 AM Pacific.
+  Local times now get the frame's UTC offset (daylight saving aware) on create and
+  update. Times that already carry an offset or Z, and all-day dates, are unchanged.
+  Events created with earlier versions are still wrong in Skylight and need
+  correcting by hand.
+- A response with an empty body (the message delete) no longer throws "Unexpected
+  end of JSON input".
 
 ## [1.5.0] - 2026-10-30
 

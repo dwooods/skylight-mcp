@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { assertNudgeId, createNudge, findNudge, getNudges, updateNudge, type NudgeResource } from "../api/endpoints/messages.js";
-import { getCategories, findCategoryByName } from "../api/endpoints/categories.js";
+import { assertNudgeId, createNudge, deleteNudge, findNudge, getNudges, updateNudge, type NudgeResource } from "../api/endpoints/messages.js";
+import { getCategories, findCategoryByName, resolveProfileIds } from "../api/endpoints/categories.js";
 import { getConfig } from "../config.js";
 import { parseDate, getDateOffset } from "../utils/dates.js";
 import { dateInZone, formatDay, formatTime } from "../utils/schedule.js";
@@ -60,10 +60,11 @@ Defaults to the last 7 days through the next 7 days. Max 31 days.`,
   );
   server.tool(
     "send_message",
-    `Post a message to the family frame (shown to everyone, on all devices, now).
+    `Post a message to the family frame now, on all devices. Shown to everyone unless "to" names profiles.
 
-PERMANENT: Skylight has no way to delete a message, and it appears on the family
-frame for the whole household immediately.
+PERMANENT in practice: the Skylight app has no way to delete a message (delete_message
+is experimental), and it appears on the family frame for the whole
+household immediately.
 
 Two-step by design. Called without confirm it only previews and posts nothing.
 Show the user the exact text and get a clear yes, then call again with confirm: true.
@@ -75,12 +76,15 @@ Check get_messages first to avoid posting a duplicate.`,
       body: z.string().min(1).max(300).describe("Message text, up to 300 characters."),
       readAloud: z.boolean().optional().describe("Speak the message on the frame when delivered. Default false."),
       from: z.string().optional().describe("Optional sender profile name, e.g. a family member. Omit for no sender."),
+      to: z.array(z.string()).optional().describe("Profile names to send to (see get_family_members), e.g. [\"Dave\"]. Omit to send to everyone."),
       confirm: z.boolean().optional().describe("Must be true to actually post. Default false: preview only."),
     },
-    async ({ body, readAloud, from, confirm }) => {
+    async ({ body, readAloud, from, to, confirm }) => {
       try {
         const text = body.trim();
         if (!text) throw new Error("Message is empty.");
+        const recipients = to && to.length > 0 ? await resolveProfileIds(to) : undefined;
+        const audience = recipients ? recipients.labels.join(", ") : "everyone";
         let senderCategoryId: string | undefined;
         if (from) {
           const match = await findCategoryByName(from);
@@ -96,15 +100,15 @@ Check get_messages first to avoid posting a duplicate.`,
             content: [
               {
                 type: "text" as const,
-                text: `NOT SENT. Preview: would post to everyone on all devices${who}${readAloud ? ", read aloud" : ", silent"}: "${text}"\n\nMessages cannot be deleted. If the user approves this exact text, call send_message again with confirm: true.`,
+                text: `NOT SENT. Preview: would post to ${audience} on all devices${who}${readAloud ? ", read aloud" : ", silent"}: "${text}"\n\nDeleting a message afterwards is experimental. If the user approves this exact text, call send_message again with confirm: true.`,
               },
             ],
           };
         }
-        const sent = await createNudge({ body: text, readAloud: readAloud === true, senderCategoryId, timeZone: getConfig().timezone });
+        const sent = await createNudge({ body: text, readAloud: readAloud === true, senderCategoryId, recipientCategoryIds: recipients?.ids, timeZone: getConfig().timezone });
         const id = sent?.id ? ` [message ID: ${sent.id}]` : "";
         return {
-          content: [{ type: "text" as const, text: `Posted to the frame${who}${readAloud ? " (read aloud)" : ""}: "${text}"${id}` }],
+          content: [{ type: "text" as const, text: `Posted to the frame${recipients ? ` for ${audience}` : ""}${who}${readAloud ? " (read aloud)" : ""}: "${text}"${id}` }],
         };
       } catch (error) {
         return { content: [{ type: "text" as const, text: formatErrorForMcp(error) }], isError: true };
@@ -143,6 +147,50 @@ ID from get_messages (looks within 31 days either side of today).`,
         }
         await updateNudge({ existing, body: text, senderCategoryId, timeZone: timezone });
         return { content: [{ type: "text" as const, text: `Updated message ${id}: "${text}"` }] };
+      } catch (error) {
+        return { content: [{ type: "text" as const, text: formatErrorForMcp(error) }], isError: true };
+      }
+    }
+  );
+  server.tool(
+    "delete_message",
+    `EXPERIMENTAL: delete a message from the family frame.
+
+The Skylight app has no delete button for messages. This calls the delete endpoint
+that other Skylight clients use; it is unverified on this account until tested, so a
+failure is expected to be reported plainly, not retried.
+
+Two-step. Without confirm it only previews which message would go. Show the user the
+text and get a clear yes before calling with confirm: true. After deleting it reads the
+message list back and reports whether the message is really gone. Get the ID from
+get_messages (looks within 31 days either side of today).`,
+    {
+      messageId: z.string().describe("Numeric message ID from get_messages."),
+      confirm: z.boolean().optional().describe("Must be true to actually delete. Default false: preview only."),
+    },
+    async ({ messageId, confirm }) => {
+      try {
+        const id = assertNudgeId(messageId.trim());
+        const { timezone } = getConfig();
+        const existing = await findNudge(id, timezone);
+        if (!existing) throw new Error(`No message with ID ${id} within 31 days of today.`);
+        const text = existing.attributes.body ?? "";
+        if (confirm !== true) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `NOT DELETED. This would delete message ${id}: "${text}"${existing.attributes.recurring ? " (it repeats; the whole series would go)" : ""}.\n\nIf the user approves, call delete_message again with confirm: true.`,
+              },
+            ],
+          };
+        }
+        await deleteNudge(existing);
+        const still = await findNudge(id, timezone);
+        if (still) {
+          throw new Error(`Skylight accepted the delete call but message ${id} is still listed. Do not assume it is gone; check the app.`);
+        }
+        return { content: [{ type: "text" as const, text: `Deleted message ${id}: "${text}". Confirmed gone from the message list.` }] };
       } catch (error) {
         return { content: [{ type: "text" as const, text: formatErrorForMcp(error) }], isError: true };
       }
