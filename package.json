@@ -26,6 +26,7 @@
     "typecheck:worker": "tsc -p tsconfig.worker.json",
     "worker:dev": "wrangler dev",
     "worker:deploy": "wrangler deploy",
+    "worker:deploy:local": "wrangler deploy -c wrangler.local.jsonc",
     "test:live": "vitest run --config vitest.live.config.ts"
   },
   "keywords": [

@@ -27,7 +27,7 @@ async function local(name: string, args: Record<string, unknown>): Promise<{ tex
 }
 
 const cat = (id: string, label: string) => ({ id, type: "category", attributes: { label, color: "#fff", linked_to_profile: true } });
-const categories = { data: [cat("11", "Ben"), cat("12", "Benjamin"), cat("13", "Dave")] };
+const categories = { data: [cat("11", "Alex"), cat("12", "Alexander"), cat("13", "Jordan")] };
 
 interface Seen { url: string; method: string; body: Record<string, unknown> | undefined }
 function stub(): Seen[] {
@@ -55,16 +55,16 @@ describe("profile targeting", () => {
   it("get_family_members prints profile IDs", async () => {
     stub();
     const out = await local("get_family_members", {});
-    expect(out.text).toContain("Dave (ID: 13)");
+    expect(out.text).toContain("Jordan (ID: 13)");
   });
 
   it("send_message to one profile sets all_profiles false and category_ids", async () => {
     const seen = stub();
-    const out = await local("send_message", { body: "Dinner", to: ["dave"], confirm: true });
+    const out = await local("send_message", { body: "Dinner", to: ["jordan"], confirm: true });
     const post = writes(seen)[0]!;
     expect(post.url).toBe("https://app.ourskylight.com/api/frames/frame-1/nudges");
     expect(post.body).toMatchObject({ all_profiles: false, category_ids: ["13"], all_devices: true, voice_kind: "silent" });
-    expect(out.text).toContain("for Dave");
+    expect(out.text).toContain("for Jordan");
   });
 
   it("send_message without `to` still goes to everyone, with no category_ids", async () => {
@@ -77,24 +77,24 @@ describe("profile targeting", () => {
 
   it("preview names the audience and posts nothing", async () => {
     const seen = stub();
-    const out = await local("send_message", { body: "Hi", to: ["Ben", "Dave"] });
+    const out = await local("send_message", { body: "Hi", to: ["Alex", "Jordan"] });
     expect(out.text).toContain("NOT SENT");
-    expect(out.text).toContain("Ben, Dave");
+    expect(out.text).toContain("Alex, Jordan");
     expect(writes(seen)).toHaveLength(0);
   });
 
   it("an unknown name fails with the valid list and sends nothing", async () => {
     const seen = stub();
-    const out = await local("send_message", { body: "Hi", to: ["Dad"], confirm: true });
+    const out = await local("send_message", { body: "Hi", to: ["Casey"], confirm: true });
     expect(out.isError).toBe(true);
     expect(out.text).toContain("No profile called");
-    expect(out.text).toContain("Ben, Benjamin, Dave");
+    expect(out.text).toContain("Alex, Alexander, Jordan");
     expect(writes(seen)).toHaveLength(0);
   });
 
-  it("matches the exact name only: Ben never resolves to Benjamin, a prefix resolves to nothing", async () => {
+  it("matches the exact name only: Alex never resolves to Alexander, a prefix resolves to nothing", async () => {
     const seen = stub();
-    await local("send_message", { body: "Hi", to: ["Ben"], confirm: true });
+    await local("send_message", { body: "Hi", to: ["Alex"], confirm: true });
     expect(writes(seen)[0]!.body).toMatchObject({ category_ids: ["11"] });
     const bad = await local("send_message", { body: "Hi", to: ["Be"], confirm: true });
     expect(bad.isError).toBe(true);
@@ -102,7 +102,7 @@ describe("profile targeting", () => {
 
   it("create_calendar_event resolves profile names to category_ids", async () => {
     const seen = stub();
-    await local("create_calendar_event", { summary: "Dentist", startsAt: "2026-11-03T10:00:00", endsAt: "2026-11-03T11:00:00", profiles: ["Ben", "Dave"] });
+    await local("create_calendar_event", { summary: "Dentist", startsAt: "2026-11-03T10:00:00", endsAt: "2026-11-03T11:00:00", profiles: ["Alex", "Jordan"] });
     expect(writes(seen)[0]!.body).toMatchObject({ category_ids: ["11", "13"] });
   });
 
@@ -138,9 +138,9 @@ describe("profile targeting", () => {
 
   it("update_calendar_event reassigns by name and refuses profiles plus categoryIds together", async () => {
     const seen = stub();
-    await local("update_calendar_event", { eventId: "5", profiles: ["Dave"] });
+    await local("update_calendar_event", { eventId: "5", profiles: ["Jordan"] });
     expect(writes(seen)[0]!.body).toMatchObject({ category_ids: ["13"] });
-    const both = await local("update_calendar_event", { eventId: "5", profiles: ["Dave"], categoryIds: ["13"] });
+    const both = await local("update_calendar_event", { eventId: "5", profiles: ["Jordan"], categoryIds: ["13"] });
     expect(both.isError).toBe(true);
   });
 });

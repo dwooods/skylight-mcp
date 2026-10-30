@@ -187,7 +187,7 @@ Parameters:
 - allDay: Set to true for all-day events
 - description: Additional notes for the event
 - location: Where the event takes place
-- profiles: Profile names to assign (e.g. ["Ben"]); categoryIds is the ID fallback
+- profiles: Profile names to assign (e.g. ["Alex"]); categoryIds is the ID fallback
 
 Returns: The created event details.
 
@@ -199,7 +199,7 @@ Related: get_family_members lists the profile names and IDs.`,
       allDay: z.boolean().optional().default(false).describe("True for all-day events"),
       description: z.string().optional().describe("Additional notes for the event"),
       location: z.string().optional().describe("Event location"),
-      profiles: z.array(z.string()).optional().describe("Profile names to assign, e.g. [\"Ben\", \"Dave\"] (see get_family_members)."),
+      profiles: z.array(z.string()).optional().describe("Profile names to assign, e.g. [\"Alex\", \"Jordan\"] (see get_family_members)."),
       categoryIds: z.array(z.string()).optional().describe("Profile IDs to assign. Prefer profiles."),
     },
     async ({ summary, startsAt, endsAt, allDay, description, location, profiles, categoryIds }) => {
@@ -264,7 +264,7 @@ Returns: The updated event details.`,
       allDay: z.boolean().optional().describe("Change to all-day event"),
       description: z.string().optional().describe("Updated notes"),
       location: z.string().optional().describe("Updated location"),
-      profiles: z.array(z.string()).optional().describe("Profile names to assign instead of the current ones, e.g. [\"Ben\"]."),
+      profiles: z.array(z.string()).optional().describe("Profile names to assign instead of the current ones, e.g. [\"Alex\"]."),
       categoryIds: z.array(z.string()).optional().describe("Profile IDs to assign. Prefer profiles."),
     },
     async ({ eventId, summary, startsAt, endsAt, allDay, description, location, profiles, categoryIds }) => {

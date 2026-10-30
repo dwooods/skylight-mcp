@@ -27,7 +27,7 @@ export function clearCategoriesCache(): void {
 
 /**
  * Find a category by name (case-insensitive partial match)
- * Categories represent family members like "Dad", "Mom", "Kids", etc.
+ * Categories represent family members like "Casey", "Mom", "Kids", etc.
  */
 export async function findCategoryByName(name: string): Promise<CategoryResource | undefined> {
   const categories = await getCategories();
@@ -57,7 +57,7 @@ export async function getChoreChartCategories(): Promise<CategoryResource[]> {
 
 /**
  * Turn profile names into category IDs. Exact match, case-insensitive, no partial
- * matching: findCategoryByName would treat "Ben" as a match for any longer name.
+ * matching: findCategoryByName would treat "Alex" as a match for any longer name.
  * Unknown names fail with the valid list so nothing is ever sent to a guess.
  */
 export async function resolveProfileIds(names: string[]): Promise<{ ids: string[]; labels: string[] }> {

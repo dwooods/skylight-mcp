@@ -51,3 +51,6 @@ coverage/
 ../plan/
 .dev.vars
 .wrangler/
+
+# Personal deploy config (real KV namespace id); copy wrangler.jsonc to this name
+wrangler.local.jsonc
