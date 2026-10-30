@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-10-29
+
+### Added
+
+- **Messages**: `get_messages` (read) and `send_message` (write) for the notes
+  shown on the frame. Endpoint and payload were taken from the web app's own
+  calls. Sends are silent unless `readAloud` is set, go to everyone on all
+  devices, and are capped at 300 characters. Skylight offers no way to delete a
+  message, so `send_message` previews by default and posts only with an explicit
+  `confirm: true` after the user has approved the text. Presigned audio URLs, which carry
+  temporary storage credentials, are never returned.
+
+- `update_message` edits a message's text or sender (PATCH with the whole form, as
+  the web app does) for messages sent to everyone on all devices that don't repeat.
+  Message IDs are validated as numeric before they reach a URL path.
+
+### Not yet supported
+
+- Targeting specific profiles or devices, scheduling, repeats and voice notes.
+  The request fields for these have not been captured.
+
 ## [1.3.0] - 2026-10-29
 
 ### Added
