@@ -10,15 +10,20 @@ import { runWithContext } from "../context.js";
 import { registerTools, type ToolEffect } from "../tools/registry.js";
 import type { SkylightProps } from "./props.js";
 
-/** The hosted server never deletes and never uploads photos. */
+/**
+ * The hosted server registers read and write tools, never uploads photos, and
+ * deletes only what is named here. Each entry is a deliberate, individual
+ * exception to "no destructive tools on the hosted server".
+ */
 export const HOSTED_EFFECTS: readonly ToolEffect[] = ["read", "write"];
+export const HOSTED_DESTRUCTIVE_ALLOWLIST: readonly string[] = ["delete_message"];
 
 export async function handleMcpRequest(request: Request, props: SkylightProps, version: string): Promise<Response> {
   const config = { frameId: props.frameId, timezone: props.timezone, token: props.accessToken, authType: "bearer" as const };
   const client = new SkylightClient(config, null);
 
   const server = new McpServer({ name: "skylight", version });
-  registerTools(server, { hasPlus: props.hasPlus, effects: HOSTED_EFFECTS, photos: false });
+  registerTools(server, { hasPlus: props.hasPlus, effects: HOSTED_EFFECTS, include: HOSTED_DESTRUCTIVE_ALLOWLIST, photos: false });
 
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // stateless

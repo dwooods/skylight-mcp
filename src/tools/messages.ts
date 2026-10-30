@@ -63,7 +63,7 @@ Defaults to the last 7 days through the next 7 days. Max 31 days.`,
     `Post a message to the family frame now, on all devices. Shown to everyone unless "to" names profiles.
 
 PERMANENT in practice: the Skylight app has no way to delete a message (delete_message
-is experimental and local-only), and it appears on the family frame for the whole
+is experimental), and it appears on the family frame for the whole
 household immediately.
 
 Two-step by design. Called without confirm it only previews and posts nothing.
