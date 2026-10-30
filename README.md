@@ -454,8 +454,13 @@ Each test is one file in `tests/live/`, so adding or removing one is adding or
 deleting a file. See [tests/live/README.md](tests/live/README.md).
 
 ```bash
-SKYLIGHT_FRAME_ID=your_frame_id SKYLIGHT_LIVE=1 npm run test:live
+SKYLIGHT_FRAME_ID=your_frame_id SKYLIGHT_TIMEZONE=America/Los_Angeles \
+SKYLIGHT_LIVE=1 npm run test:live
 ```
+
+Set `SKYLIGHT_TIMEZONE` to your frame's zone. It defaults to `America/New_York`,
+which shifts every date window the suite asks for if your frame is elsewhere.
+Sign in first with `skylight-mcp auth login`.
 
 ## API Documentation
 

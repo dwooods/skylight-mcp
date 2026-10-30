@@ -58,7 +58,7 @@ function resolveRange(date: string | undefined, dateEnd: string | undefined, day
 /** Meals for a range, keyed by "YYYY-MM-DD|Category". Null if the account has no meal planning. */
 async function loadMeals(start: string, end: string): Promise<{ byKey: Map<string, string>; categories: MealCategoryResource[] } | null> {
   try {
-    const [categories, sittings] = await Promise.all([getMealCategories(), getMealSittings({ dateMin: start, dateMax: end })]);
+    const [categories, sittings] = await Promise.all([getMealCategories(), getMealSittings({ dateMin: start, dateMax: addDays(end, 1) })]);
     const name = new Map(categories.map((c) => [c.id, mealCategoryName(c)]));
     const byKey = new Map<string, string>();
     for (const s of sittings) {

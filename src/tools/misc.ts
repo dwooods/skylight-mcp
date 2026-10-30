@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { getAvatars, getColors } from "../api/endpoints/misc.js";
+import { attributesOf } from "../api/endpoints/shape.js";
 import { formatErrorForMcp } from "../utils/errors.js";
 
 export function registerMiscTools(server: McpServer): void {
@@ -90,7 +91,7 @@ Returns: List of available colors with their IDs and hex values.`,
         const colorList = colors
           .map((color) => {
             const parts = [`- Color (ID: ${color.id})`];
-            for (const [key, value] of Object.entries(color.attributes)) {
+            for (const [key, value] of Object.entries(attributesOf(color))) {
               if (value !== null && value !== undefined) {
                 parts.push(`  ${key}: ${value}`);
               }

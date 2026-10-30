@@ -1,3 +1,4 @@
+import { attributesOf } from "../api/endpoints/shape.js";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
@@ -116,7 +117,7 @@ Use this to answer:
           .map((point) => {
             const parts = [`- Points (ID: ${point.id})`];
 
-            const attrs = point.attributes;
+            const attrs = attributesOf(point);
             for (const [key, value] of Object.entries(attrs)) {
               if (value !== null && value !== undefined) {
                 parts.push(`  ${key}: ${value}`);
