@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-10-29
+
+### Added
+
+- **Planning tools**: `get_week_overview`, `find_conflicts`, `find_free_slots`
+  (all read-only) and `plan_week_meals` (write, with dry run). Chores and
+  tasks are first-class in the overview: status, assignee, points, and an
+  overdue section.
+- `src/utils/schedule.ts`: zone-aware interval math (Intl only, no library)
+  with explicit handling of DST gaps/overlaps and all-day events.
+- Tests for the schedule math and the four planning tools.
+
+### Notes
+
+- `plan_week_meals` registers without Plus and fails with a clear message there.
+- The hosted Worker exposes the new tools automatically (read + write profile).
+  Redeploy to pick them up.
+
 ## [1.2.0] - 2026-10-29
 
 ### Fixed
