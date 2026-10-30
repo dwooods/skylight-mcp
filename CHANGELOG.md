@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Live test suite** (`npm run test:live`, development only). Real tools against a
+  real frame, to catch drift in Skylight's undocumented API that mocked tests
+  cannot see. Off unless `SKYLIGHT_LIVE=1`, never part of `npm test` or CI, and
+  the harness refuses `send_message`, `update_message` and `delete_message`. One suite per file in
+  `tests/live/`, filterable by tag. First suites: read smoke checks,
+  response-shape contract checks, write guards and a meal
+  create/rename/move/delete round trip with guaranteed cleanup. A normal-suite
+  test checks that every live file is gated.
+
 ## [1.6.0] - 2026-10-30
 
 ### Added

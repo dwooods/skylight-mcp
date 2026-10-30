@@ -25,7 +25,8 @@
     "generate:types": "openapi-typescript ../skylight-api/docs/openapi/openapi.yaml -o src/api/generated-types.ts",
     "typecheck:worker": "tsc -p tsconfig.worker.json",
     "worker:dev": "wrangler dev",
-    "worker:deploy": "wrangler deploy"
+    "worker:deploy": "wrangler deploy",
+    "test:live": "vitest run --config vitest.live.config.ts"
   },
   "keywords": [
     "mcp",

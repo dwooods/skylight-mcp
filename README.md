@@ -442,6 +442,20 @@ npm test
 npm run typecheck
 ```
 
+### Live tests
+
+`npm test` uses mocked network calls and is what CI runs. A separate, opt-in
+suite runs the real tools against your own Skylight frame to catch drift in
+Skylight's API: read smoke checks, response-shape contract checks, and a
+create/edit/move/delete round trip on a throwaway meal. It does nothing unless
+you set `SKYLIGHT_LIVE=1`, never sends messages, and cleans up after itself.
+Each test is one file in `tests/live/`, so adding or removing one is adding or
+deleting a file. See [tests/live/README.md](tests/live/README.md).
+
+```bash
+SKYLIGHT_FRAME_ID=your_frame_id SKYLIGHT_LIVE=1 npm run test:live
+```
+
 ## API Documentation
 
 This MCP server is built on top of the reverse-engineered Skylight API. The API endpoints were documented using the [skylight-api](https://github.com/TheEagleByte/skylight-api) project, which converts browser network traffic (HAR files) into an OpenAPI specification.
