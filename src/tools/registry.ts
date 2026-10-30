@@ -19,6 +19,7 @@ import { registerListTools } from "./lists.js";
 import { registerMealTools } from "./meals.js";
 import { registerMiscTools } from "./misc.js";
 import { registerPhotoTools } from "./photos.js";
+import { registerPlanningTools } from "./planning.js";
 import { registerRewardTools } from "./rewards.js";
 import { registerTaskTools } from "./tasks.js";
 
@@ -78,6 +79,11 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   delete_recipe: "destructive",
   // photos (Plus)
   get_albums: "read",
+  // planning (composite)
+  get_week_overview: "read",
+  find_conflicts: "read",
+  find_free_slots: "read",
+  plan_week_meals: "write",
 };
 
 export interface RegisterToolsOptions {
@@ -137,6 +143,9 @@ export function registerTools(server: McpServer, options: RegisterToolsOptions):
   registerTaskTools(filtered);
   registerFamilyTools(filtered);
   registerMiscTools(filtered);
+  // Planning tools degrade gracefully without Plus (meals are simply omitted),
+  // except plan_week_meals, which needs the meals API.
+  registerPlanningTools(filtered);
 
   if (options.hasPlus) {
     registerRewardTools(filtered);

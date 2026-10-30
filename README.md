@@ -231,6 +231,20 @@ Skylight password.
 
 ## Available Tools
 
+### Planning Tools
+
+Built for "what does the week look like and what is for dinner" questions.
+One call returns calendar, chores/tasks, meals and lists, merged per day.
+
+| Tool | Effect | Description |
+|------|--------|-------------|
+| `get_week_overview` | read | Per-day events, chores/tasks (status, assignee, points), meals, overdue chores, conflicts and list summaries in one compact call. Omits owner emails and calendar IDs. |
+| `find_conflicts` | read | Timed events that overlap in a date range. All-day events never conflict. |
+| `find_free_slots` | read | Gaps of at least N minutes inside a daily window (default 08:00 to 21:00). |
+| `plan_week_meals` | write | Fill several meal slots at once. `dryRun` previews; occupied slots are skipped, never overwritten; all entries are validated before anything is written; optional grocery push for recipes. |
+
+Times are computed in the frame's time zone, including DST changes.
+
 ### Calendar Tools
 
 | Tool | Description |
