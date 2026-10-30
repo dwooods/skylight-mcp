@@ -252,7 +252,7 @@ Messages are the notes shown on the frame (Skylight's web app calls them "nudges
 | Tool | Effect | Description |
 |------|--------|-------------|
 | `get_messages` | read | Messages in a date range with time, text, recipients and sender. Never returns the presigned audio URLs. |
-| `send_message` | write | Post a message to everyone, on all devices, now. Read aloud is **off** unless asked for. Optional sender profile. Up to 300 characters. Cannot be recalled by this server. |
+| `send_message` | write | Post a message to everyone, on all devices, now. **Permanent: Skylight has no delete.** Previews by default and posts only with `confirm: true`. Read aloud is **off** unless asked for. Optional sender profile. Up to 300 characters. |
 
 Not supported yet: targeting specific profiles or devices, scheduling, repeats, voice notes.
 

@@ -92,7 +92,7 @@ describe("send_message", () => {
   it("posts silent to everyone, with no sender, to the pinned endpoint", async () => {
     const posts: Array<{ url: string; body: Record<string, unknown> }> = [];
     stub(posts);
-    const { text, isError } = await run("send_message", { body: "  Dinner at 6  " });
+    const { text, isError } = await run("send_message", { body: "  Dinner at 6  ", confirm: true });
     expect(isError).toBeFalsy();
     expect(posts).toHaveLength(1);
     expect(posts[0].url).toBe("https://app.ourskylight.com/api/frames/frame-1/nudges");
@@ -105,7 +105,7 @@ describe("send_message", () => {
   it("resolves the sender by name and only speaks when asked", async () => {
     const posts: Array<{ url: string; body: Record<string, unknown> }> = [];
     stub(posts);
-    await run("send_message", { body: "Hi", from: "dad", readAloud: true });
+    await run("send_message", { body: "Hi", from: "dad", readAloud: true, confirm: true });
     expect(posts[0].body).toMatchObject({ sender_category_id: "k2", voice_kind: "kirk_voice" });
   });
 
@@ -120,6 +120,19 @@ describe("send_message", () => {
     expect(long.isError).toBe(true);
     const blank = await run("send_message", { body: "   " });
     expect(blank.isError).toBe(true);
+    expect(posts).toHaveLength(0);
+  });
+
+  it("previews without posting unless confirm is exactly true", async () => {
+    const posts: Array<{ url: string; body: Record<string, unknown> }> = [];
+    stub(posts);
+    const preview = await run("send_message", { body: "Dinner at 6", from: "Dad" });
+    expect(preview.isError).toBeFalsy();
+    expect(preview.text).toContain("NOT SENT");
+    expect(preview.text).toContain('"Dinner at 6"');
+    expect(preview.text).toContain("from Dad");
+    const explicitFalse = await run("send_message", { body: "Dinner at 6", confirm: false });
+    expect(explicitFalse.text).toContain("NOT SENT");
     expect(posts).toHaveLength(0);
   });
 });

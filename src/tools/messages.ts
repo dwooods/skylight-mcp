@@ -62,17 +62,22 @@ Defaults to the last 7 days through the next 7 days. Max 31 days.`,
     "send_message",
     `Post a message to the family frame (shown to everyone, on all devices, now).
 
-This is visible to the whole household immediately and cannot be recalled by this
-server. Use it only when the user asked for a message or a reminder to be posted.
-Read aloud is OFF by default; turn it on only if the user asked for it to be spoken.
+PERMANENT: Skylight has no way to delete a message, and it appears on the family
+frame for the whole household immediately.
+
+Two-step by design. Called without confirm it only previews and posts nothing.
+Show the user the exact text and get a clear yes, then call again with confirm: true.
+Never pass confirm: true on the first call, and never invent message text the user
+did not ask for. Read aloud is OFF by default; enable it only if the user asked.
 
 Check get_messages first to avoid posting a duplicate.`,
     {
       body: z.string().min(1).max(300).describe("Message text, up to 300 characters."),
       readAloud: z.boolean().optional().describe("Speak the message on the frame when delivered. Default false."),
       from: z.string().optional().describe("Optional sender profile name, e.g. a family member. Omit for no sender."),
+      confirm: z.boolean().optional().describe("Must be true to actually post. Default false: preview only."),
     },
-    async ({ body, readAloud, from }) => {
+    async ({ body, readAloud, from, confirm }) => {
       try {
         const text = body.trim();
         if (!text) throw new Error("Message is empty.");
@@ -85,8 +90,18 @@ Check get_messages first to avoid posting a duplicate.`,
           }
           senderCategoryId = match.id;
         }
-        const sent = await createNudge({ body: text, readAloud: readAloud === true, senderCategoryId, timeZone: getConfig().timezone });
         const who = senderCategoryId ? ` from ${from}` : "";
+        if (confirm !== true) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `NOT SENT. Preview: would post to everyone on all devices${who}${readAloud ? ", read aloud" : ", silent"}: "${text}"\n\nMessages cannot be deleted. If the user approves this exact text, call send_message again with confirm: true.`,
+              },
+            ],
+          };
+        }
+        const sent = await createNudge({ body: text, readAloud: readAloud === true, senderCategoryId, timeZone: getConfig().timezone });
         const id = sent?.id ? ` [message ID: ${sent.id}]` : "";
         return {
           content: [{ type: "text" as const, text: `Posted to the frame${who}${readAloud ? " (read aloud)" : ""}: "${text}"${id}` }],

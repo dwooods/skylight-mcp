@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Messages**: `get_messages` (read) and `send_message` (write) for the notes
   shown on the frame. Endpoint and payload were taken from the web app's own
   calls. Sends are silent unless `readAloud` is set, go to everyone on all
-  devices, and are capped at 300 characters. Presigned audio URLs, which carry
+  devices, and are capped at 300 characters. Skylight offers no way to delete a
+  message, so `send_message` previews by default and posts only with an explicit
+  `confirm: true` after the user has approved the text. Presigned audio URLs, which carry
   temporary storage credentials, are never returned.
 
 ### Not yet supported
