@@ -37,7 +37,7 @@ Code, or any other). Nothing to clone or build.
 ### 1. Sign in (once)
 
 ```bash
-npx -y @dwooods/skylight-mcp auth login
+npx -y @davidwoods/skylight-mcp auth login
 ```
 
 This prints a Skylight sign-in URL. Open it in your browser and sign in. The
@@ -47,7 +47,7 @@ the Skylight home page too fast to copy. Get it from your browser history:
 Skylight result, Copy link address. Then:
 
 ```bash
-npx -y @dwooods/skylight-mcp auth complete
+npx -y @davidwoods/skylight-mcp auth complete
 ```
 
 and paste it. Your password never touches this program; only the resulting
@@ -71,7 +71,7 @@ event times and date windows come out wrong anywhere else.
   "mcpServers": {
     "skylight": {
       "command": "npx",
-      "args": ["-y", "@dwooods/skylight-mcp"],
+      "args": ["-y", "@davidwoods/skylight-mcp"],
       "env": {
         "SKYLIGHT_FRAME_ID": "your_frame_id",
         "SKYLIGHT_TIMEZONE": "America/New_York"
@@ -85,7 +85,7 @@ event times and date windows come out wrong anywhere else.
 ```bash
 claude mcp add skylight \
   -e SKYLIGHT_FRAME_ID=your_frame_id -e SKYLIGHT_TIMEZONE=America/New_York \
-  -- npx -y @dwooods/skylight-mcp
+  -- npx -y @davidwoods/skylight-mcp
 ```
 
 Restart the client fully (Cmd-Q on Mac), then ask it "what's on the family
@@ -95,7 +95,7 @@ calendar this week?"
 
 ```bash
 SKYLIGHT_FRAME_ID=your_frame_id SKYLIGHT_TIMEZONE=America/New_York \
-  npx -y @dwooods/skylight-mcp doctor
+  npx -y @davidwoods/skylight-mcp doctor
 ```
 
 `doctor` checks Node, the frame ID, the timezone, your sign-in and one real call
@@ -117,7 +117,7 @@ In the client config use `"command": "node", "args": ["/path/to/skylight-mcp/dis
 Windows is untested as of this writing; treat these as expected, not confirmed.
 
 - `npx` is a `.cmd` file on Windows, so in a client config use
-  `"command": "cmd", "args": ["/c", "npx", "-y", "@dwooods/skylight-mcp"]`.
+  `"command": "cmd", "args": ["/c", "npx", "-y", "@davidwoods/skylight-mcp"]`.
 - Set variables in PowerShell like this, then run the command on the next line:
   `$env:SKYLIGHT_FRAME_ID="your_frame_id"; $env:SKYLIGHT_TIMEZONE="America/New_York"`.
 - The sign-in is stored unencrypted in `%APPDATA%\skylight-mcp\credential.json`.

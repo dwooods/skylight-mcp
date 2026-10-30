@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.7.0] - 2026-10-30
 
+### Changed
+
+- npm package name is `@davidwoods/skylight-mcp` (the `dwooods` npm scope was not
+  available; the GitHub repository is still `dwooods/skylight-mcp`).
+
 ### Added
 
 - **`skylight-mcp doctor`**: checks Node, frame ID, timezone, sign-in and one real
