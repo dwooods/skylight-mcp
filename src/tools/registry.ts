@@ -91,6 +91,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   get_messages: "read",
   send_message: "write",
   update_message: "write",
+  delete_message: "destructive",
 };
 
 export interface RegisterToolsOptions {
@@ -98,6 +99,8 @@ export interface RegisterToolsOptions {
   hasPlus: boolean;
   /** Effects to register. Default: all. */
   effects?: readonly ToolEffect[];
+  /** Individual tools to register even if their effect class is excluded. Least-privilege exceptions. */
+  include?: readonly string[];
   /** Register the photo tools (uploads). Default: true when hasPlus. */
   photos?: boolean;
 }
@@ -114,8 +117,9 @@ export function annotationsFor(effect: ToolEffect): ToolAnnotations {
 /** Names of the tools that would be registered with these options. */
 export function selectedTools(options: RegisterToolsOptions): string[] {
   const effects = new Set(options.effects ?? ["read", "write", "destructive"]);
+  const include = new Set(options.include ?? []);
   return Object.entries(TOOL_EFFECTS)
-    .filter(([, effect]) => effects.has(effect))
+    .filter(([name, effect]) => effects.has(effect) || include.has(name))
     .map(([name]) => name);
 }
 
