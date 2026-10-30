@@ -1,7 +1,7 @@
 {
-  "name": "@eaglebyte/skylight-mcp",
-  "version": "1.1.8",
-  "description": "MCP server for Skylight Calendar API - enables agentic interactions for calendar, chores, lists, and family management",
+  "name": "@dwooods/skylight-mcp",
+  "version": "1.2.0",
+  "description": "Unofficial MCP server for Skylight Calendar: local (stdio) and hosted (Cloudflare Workers), with browser-paste OAuth sign-in and an encrypted credential store",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -37,11 +37,11 @@
     "family",
     "chores"
   ],
-  "author": "",
+  "author": "David Woods",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/TheEagleByte/skylight-mcp.git"
+    "url": "https://github.com/dwooods/skylight-mcp.git"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.4",
@@ -63,5 +63,9 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "homepage": "https://github.com/dwooods/skylight-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/dwooods/skylight-mcp/issues"
   }
 }

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] - 2026-10-29
 
 ### Added
 
@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Package renamed to `@dwooods/skylight-mcp`; repository metadata points at
+  this fork. README carries an explicit unofficial-status notice.
 - Auth source order is now explicit token, stored credential, then the
   deprecated email/password login. Startup no longer requires email/password or
   token env vars.

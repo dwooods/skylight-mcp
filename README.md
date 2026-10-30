@@ -1,6 +1,19 @@
 # Skylight MCP Server
 
-An MCP (Model Context Protocol) server for the Skylight Calendar API. Enables AI assistants like Claude to interact with your Skylight family calendar, chores, lists, and more.
+An MCP (Model Context Protocol) server for the Skylight Calendar. Lets Claude
+(including Claude Duet, via the hosted mode) read and plan against your family
+calendar, chores, lists, meals and rewards.
+
+> **Unofficial.** This project is not affiliated with or endorsed by Skylight.
+> Skylight has no public API; this talks to the same private endpoints their
+> own apps use, discovered by observing app traffic. It can stop working or be
+> blocked at any time, without notice. Use it with your own account, at your
+> own risk, and keep request volume modest.
+>
+> Forked from [TheEagleByte/skylight-mcp](https://github.com/TheEagleByte/skylight-mcp)
+> (MIT). The sign-in and credential-store design follows
+> [kamilio/skylight-calendar-agent](https://github.com/kamilio/skylight-calendar-agent)
+> (MIT). See `THIRD_PARTY_NOTICES.md`.
 
 ## Features
 
