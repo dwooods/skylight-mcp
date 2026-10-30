@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import {
+  mealCategoryName,
   getMealCategories,
   getRecipes,
   getRecipe,
@@ -39,7 +40,7 @@ Returns: List of meal categories with IDs.`,
         }
 
         const list = categories
-          .map((cat) => `- ${cat.attributes.name ?? "Unknown"} (ID: ${cat.id})`)
+          .map((cat) => `- ${mealCategoryName(cat)} (ID: ${cat.id})`)
           .join("\n");
 
         return {
@@ -315,16 +316,29 @@ Returns: List of scheduled meals.`,
           };
         }
 
-        const list = sittings
-          .map((sitting) => {
-            const parts = [`- ${sitting.attributes.date ?? "Unknown date"}`];
-            if (sitting.attributes.meal_time) {
-              parts[0] += ` (${sitting.attributes.meal_time})`;
-            }
-            parts.push(`  ID: ${sitting.id}`);
-            return parts.join("\n");
-          })
-          .join("\n\n");
+        // Resolve category ids to names once; recipes are shown by id (fetch with get_recipe).
+        const categories = await getMealCategories().catch(() => []);
+        const categoryName = new Map(categories.map((c) => [c.id, mealCategoryName(c)]));
+
+        const rows: Array<{ date: string; line: string }> = [];
+        for (const sitting of sittings) {
+          const dates = sitting.attributes.instances?.length
+            ? sitting.attributes.instances
+            : [sitting.attributes.date ?? "unknown date"];
+          const categoryId = sitting.relationships?.meal_category?.data?.id;
+          const category = categoryId ? (categoryName.get(categoryId) ?? `category ${categoryId}`) : "uncategorised";
+          const recipeId = sitting.relationships?.meal_recipe?.data?.id;
+          const what = sitting.attributes.summary?.trim() || (recipeId ? `recipe ${recipeId}` : "(empty)");
+          for (const d of dates) {
+            if (d < startDate || d > endDate) continue;
+            rows.push({
+              date: d,
+              line: `- ${formatDateForDisplay(d)} ${category}: ${what}${recipeId ? ` (recipe ID: ${recipeId})` : ""} [sitting ID: ${sitting.id}]`,
+            });
+          }
+        }
+        rows.sort((a, b) => a.date.localeCompare(b.date));
+        const list = rows.map((r) => r.line).join("\n");
 
         return {
           content: [{ type: "text" as const, text: `Scheduled meals:\n\n${list}` }],
@@ -349,31 +363,43 @@ Use this when:
 
 Parameters:
 - date (required): Date for the meal (YYYY-MM-DD)
-- mealCategoryId (required): Meal category ID (use get_meal_categories)
-- recipeId: Recipe ID to schedule (optional)
+- mealCategoryId (required): Meal category ID (use get_meal_categories to find "Dinner" etc.)
+- summary: What the meal is, as free text, e.g. "Thai green curry". No recipe needed.
+- recipeId: A saved recipe to link instead of, or as well as, a summary.
+
+Give at least one of summary or recipeId.
 
 Returns: The created meal sitting.`,
     {
       date: z.string().describe("Date for the meal (YYYY-MM-DD or 'today', 'tomorrow')"),
       mealCategoryId: z.string().describe("Meal category ID (e.g., ID for 'Dinner')"),
-      recipeId: z.string().optional().describe("Recipe ID to schedule"),
+      summary: z.string().max(200).optional().describe("Meal name as free text, e.g. 'Sheet-pan fajitas'"),
+      recipeId: z.string().optional().describe("Saved recipe ID to link"),
     },
-    async ({ date, mealCategoryId, recipeId }) => {
+    async ({ date, mealCategoryId, summary, recipeId }) => {
       try {
+        if (!summary?.trim() && !recipeId) {
+          return {
+            content: [{ type: "text" as const, text: "Give a summary (meal name) or a recipeId." }],
+            isError: true,
+          };
+        }
         const config = getConfig();
         const mealDate = parseDate(date, config.timezone);
 
         const sitting = await createMealSitting({
           date: mealDate,
           mealCategoryId,
+          summary: summary?.trim() || undefined,
           recipeId,
         });
 
+        const what = sitting.attributes.summary?.trim() || summary?.trim() || `recipe ${recipeId}`;
         return {
           content: [
             {
               type: "text" as const,
-              text: `Scheduled meal for ${formatDateForDisplay(mealDate)} (ID: ${sitting.id})`,
+              text: `Scheduled "${what}" for ${formatDateForDisplay(mealDate)} (sitting ID: ${sitting.id})`,
             },
           ],
         };

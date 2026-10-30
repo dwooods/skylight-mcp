@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.2.0] - 2026-10-29
 
+### Fixed
+
+- **Meals**: `get_meal_categories` showed every category as "Unknown"; the
+  API field is `label`, not `name`. `get_meal_sittings` now shows what is
+  planned (summary or recipe), the category name, and each date in range.
+  `create_meal_sitting` accepts a free-text `summary` so a meal can be
+  scheduled without creating a recipe first, and reads the list-shaped
+  create response correctly.
+
 ### Added
 
 - **Browser-paste sign-in**: `skylight-mcp auth login` / `auth complete <url>` /
