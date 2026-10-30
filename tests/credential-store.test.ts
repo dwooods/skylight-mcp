@@ -161,3 +161,29 @@ describe("pending login file", () => {
     expect(await takePendingLogin(dir)).toBeNull();
   });
 });
+
+describe("defaultConfigDirectory per platform", () => {
+  const real = Object.getOwnPropertyDescriptor(process, "platform")!;
+  const env = { ...process.env };
+  afterEach(() => {
+    Object.defineProperty(process, "platform", real);
+    process.env = { ...env };
+  });
+
+  it("uses %APPDATA% on Windows, not ~/.config", async () => {
+    Object.defineProperty(process, "platform", { value: "win32" });
+    process.env.APPDATA = "C:\\Users\\someone\\AppData\\Roaming";
+    const { defaultConfigDirectory } = await import("../src/api/credential-store.js");
+    const dir = defaultConfigDirectory();
+    expect(dir).toContain("skylight-mcp");
+    expect(dir).toContain("AppData");
+    expect(dir).not.toContain(".config");
+  });
+
+  it("keeps XDG on Linux", async () => {
+    Object.defineProperty(process, "platform", { value: "linux" });
+    process.env.XDG_CONFIG_HOME = "/home/x/cfg";
+    const { defaultConfigDirectory } = await import("../src/api/credential-store.js");
+    expect(defaultConfigDirectory()).toContain("cfg");
+  });
+});

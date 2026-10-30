@@ -112,6 +112,18 @@ node dist/index.js auth login    # same steps as above, using node dist/index.js
 
 In the client config use `"command": "node", "args": ["/path/to/skylight-mcp/dist/index.js"]`.
 
+### Windows (not yet verified)
+
+Windows is untested as of this writing; treat these as expected, not confirmed.
+
+- `npx` is a `.cmd` file on Windows, so in a client config use
+  `"command": "cmd", "args": ["/c", "npx", "-y", "@dwooods/skylight-mcp"]`.
+- Set variables in PowerShell like this, then run the command on the next line:
+  `$env:SKYLIGHT_FRAME_ID="your_frame_id"; $env:SKYLIGHT_TIMEZONE="America/New_York"`.
+- The sign-in is stored unencrypted in `%APPDATA%\skylight-mcp\credential.json`.
+  There is no Keychain equivalent wired in, and Windows ignores Unix `0600`
+  permissions. Only your Windows user profile protects it.
+
 ### Troubleshooting
 
 | Symptom | Likely cause and fix |
@@ -161,6 +173,7 @@ Where the credential lives:
 |----------|----------|------------|
 | macOS | `~/Library/Application Support/skylight-mcp/credential.enc.json` | AES-256-GCM; key in Keychain (`skylight-mcp.encryption-key`) |
 | Linux / other | `$XDG_CONFIG_HOME/skylight-mcp/credential.json` (default `~/.config/skylight-mcp/`) | `0600` file in a `0700` directory, no encryption |
+| Windows | `%APPDATA%\\skylight-mcp\\credential.json` | Not encrypted. Windows ignores `0600`; only your user profile's own permissions protect it. Untested, see below. |
 
 If the Keychain is unavailable on macOS the server refuses to read or write the
 credential; it never silently downgrades to plaintext.

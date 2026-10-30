@@ -13,6 +13,8 @@ import { createInterface } from "node:readline";
 import { parseKvId, parseWorkerUrl, passphraseProblem, patchKvId } from "./setup-worker-lib.mjs";
 
 const dry = process.argv.includes("--dry-run");
+// On Windows npx is npx.cmd, which spawn only finds through a shell.
+const shell = process.platform === "win32";
 const LOCAL = "wrangler.local.jsonc";
 const say = (s) => console.log(s);
 
@@ -21,7 +23,7 @@ function wrangler(args, input) {
     say(`  [dry run] npx wrangler ${args.join(" ")}`);
     return { status: 0, out: "" };
   }
-  const r = spawnSync("npx", ["wrangler", ...args], { input, encoding: "utf8" });
+  const r = spawnSync("npx", ["wrangler", ...args], { input, encoding: "utf8", shell });
   const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
   if (r.status !== 0) {
     say(out);
@@ -50,7 +52,7 @@ async function main() {
 
   say("1. Checking you are logged in to Cloudflare");
   if (!dry) {
-    const who = spawnSync("npx", ["wrangler", "whoami"], { encoding: "utf8" });
+    const who = spawnSync("npx", ["wrangler", "whoami"], { encoding: "utf8", shell });
     if (who.status !== 0 || /not authenticated/i.test(`${who.stdout}${who.stderr}`)) {
       throw new Error("Not logged in to Cloudflare. Run `npx wrangler login`, then run this again.");
     }

@@ -35,6 +35,9 @@ export function defaultConfigDirectory(): string {
   if (process.platform === "darwin") {
     return path.join(homedir(), "Library", "Application Support", "skylight-mcp");
   }
+  if (process.platform === "win32") {
+    return path.join(process.env.APPDATA ?? path.join(homedir(), "AppData", "Roaming"), "skylight-mcp");
+  }
   return path.join(process.env.XDG_CONFIG_HOME ?? path.join(homedir(), ".config"), "skylight-mcp");
 }
 
