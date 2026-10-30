@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { getNudges, type NudgeResource } from "../api/endpoints/messages.js";
-import { getCategories } from "../api/endpoints/categories.js";
+import { createNudge, getNudges, type NudgeResource } from "../api/endpoints/messages.js";
+import { getCategories, findCategoryByName } from "../api/endpoints/categories.js";
 import { getConfig } from "../config.js";
 import { parseDate, getDateOffset } from "../utils/dates.js";
 import { dateInZone, formatDay, formatTime } from "../utils/schedule.js";
@@ -53,6 +53,44 @@ Defaults to the last 7 days through the next 7 days. Max 31 days.`,
         }
         const text = [...byDay.entries()].map(([d, lines]) => `${formatDay(d)}\n${lines.join("\n")}`).join("\n\n");
         return { content: [{ type: "text" as const, text: `Messages ${start} to ${end}:\n\n${text}` }] };
+      } catch (error) {
+        return { content: [{ type: "text" as const, text: formatErrorForMcp(error) }], isError: true };
+      }
+    }
+  );
+  server.tool(
+    "send_message",
+    `Post a message to the family frame (shown to everyone, on all devices, now).
+
+This is visible to the whole household immediately and cannot be recalled by this
+server. Use it only when the user asked for a message or a reminder to be posted.
+Read aloud is OFF by default; turn it on only if the user asked for it to be spoken.
+
+Check get_messages first to avoid posting a duplicate.`,
+    {
+      body: z.string().min(1).max(300).describe("Message text, up to 300 characters."),
+      readAloud: z.boolean().optional().describe("Speak the message on the frame when delivered. Default false."),
+      from: z.string().optional().describe("Optional sender profile name, e.g. a family member. Omit for no sender."),
+    },
+    async ({ body, readAloud, from }) => {
+      try {
+        const text = body.trim();
+        if (!text) throw new Error("Message is empty.");
+        let senderCategoryId: string | undefined;
+        if (from) {
+          const match = await findCategoryByName(from);
+          if (!match) {
+            const known = (await getCategories()).map((c) => c.attributes.label).filter(Boolean).join(", ");
+            throw new Error(`No profile called "${from}". Profiles: ${known}.`);
+          }
+          senderCategoryId = match.id;
+        }
+        const sent = await createNudge({ body: text, readAloud: readAloud === true, senderCategoryId, timeZone: getConfig().timezone });
+        const who = senderCategoryId ? ` from ${from}` : "";
+        const id = sent?.id ? ` [message ID: ${sent.id}]` : "";
+        return {
+          content: [{ type: "text" as const, text: `Posted to the frame${who}${readAloud ? " (read aloud)" : ""}: "${text}"${id}` }],
+        };
       } catch (error) {
         return { content: [{ type: "text" as const, text: formatErrorForMcp(error) }], isError: true };
       }

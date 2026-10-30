@@ -63,3 +63,63 @@ describe("get_messages", () => {
     expect(out).not.toContain("bucket.example.com");
   });
 });
+
+function callTool(name: string, args: Record<string, unknown>): Request {
+  return new Request("https://w.example/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+  });
+}
+async function run(name: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
+  const res = await handleMcpRequest(callTool(name, args), props, "t");
+  const r = ((await res.json()) as { result: { content: Array<{ text: string }>; isError?: boolean } }).result;
+  return { text: r.content[0].text, isError: r.isError };
+}
+
+describe("send_message", () => {
+  function stub(posts: Array<{ url: string; body: Record<string, unknown> }>): void {
+    vi.stubGlobal("fetch", vi.fn(async (u: string, init?: RequestInit) => {
+      const url = String(u);
+      if (init?.method === "POST") {
+        posts.push({ url, body: JSON.parse(String(init.body)) as Record<string, unknown> });
+        return new Response(JSON.stringify({ data: { id: "n9", type: "nudge", attributes: {} } }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify(url.includes("/categories") ? categories : {}), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+  }
+
+  it("posts silent to everyone, with no sender, to the pinned endpoint", async () => {
+    const posts: Array<{ url: string; body: Record<string, unknown> }> = [];
+    stub(posts);
+    const { text, isError } = await run("send_message", { body: "  Dinner at 6  " });
+    expect(isError).toBeFalsy();
+    expect(posts).toHaveLength(1);
+    expect(posts[0].url).toBe("https://app.ourskylight.com/api/frames/frame-1/nudges");
+    expect(posts[0].body).toMatchObject({ body: "Dinner at 6", all_profiles: true, all_devices: true, voice_kind: "silent" });
+    expect(posts[0].body).not.toHaveProperty("sender_category_id");
+    expect(String(posts[0].body.deliver_at)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}-0[78]:00$/);
+    expect(text).toContain('Posted to the frame: "Dinner at 6" [message ID: n9]');
+  });
+
+  it("resolves the sender by name and only speaks when asked", async () => {
+    const posts: Array<{ url: string; body: Record<string, unknown> }> = [];
+    stub(posts);
+    await run("send_message", { body: "Hi", from: "dad", readAloud: true });
+    expect(posts[0].body).toMatchObject({ sender_category_id: "k2", voice_kind: "kirk_voice" });
+  });
+
+  it("refuses an unknown sender or an over-long or blank message without posting", async () => {
+    const posts: Array<{ url: string; body: Record<string, unknown> }> = [];
+    stub(posts);
+    const unknown = await run("send_message", { body: "Hi", from: "Nobody" });
+    expect(unknown.isError).toBe(true);
+    expect(unknown.text).toContain("No profile called");
+    expect(unknown.text).toContain("Ben, Dad");
+    const long = await run("send_message", { body: "x".repeat(301) });
+    expect(long.isError).toBe(true);
+    const blank = await run("send_message", { body: "   " });
+    expect(blank.isError).toBe(true);
+    expect(posts).toHaveLength(0);
+  });
+});

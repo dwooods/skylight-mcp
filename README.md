@@ -245,6 +245,17 @@ One call returns calendar, chores/tasks, meals and lists, merged per day.
 
 Times are computed in the frame's time zone, including DST changes.
 
+### Message Tools
+
+Messages are the notes shown on the frame (Skylight's web app calls them "nudges").
+
+| Tool | Effect | Description |
+|------|--------|-------------|
+| `get_messages` | read | Messages in a date range with time, text, recipients and sender. Never returns the presigned audio URLs. |
+| `send_message` | write | Post a message to everyone, on all devices, now. Read aloud is **off** unless asked for. Optional sender profile. Up to 300 characters. Cannot be recalled by this server. |
+
+Not supported yet: targeting specific profiles or devices, scheduling, repeats, voice notes.
+
 ### Calendar Tools
 
 | Tool | Description |

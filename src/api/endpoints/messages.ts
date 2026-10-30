@@ -53,3 +53,35 @@ export async function getNudges(startDate: string, endDate: string, timeZone: st
   const response = await getClient().get<NudgesResponse>("/api/frames/{frameId}/nudges", { after, before });
   return response.data ?? [];
 }
+
+export interface CreateNudgeOptions {
+  body: string;
+  /** Read aloud on the frame when delivered. Off by default. */
+  readAloud?: boolean;
+  /** Profile (category) id shown as the sender. Omitted when not given. */
+  senderCategoryId?: string;
+  timeZone: string;
+}
+
+interface CreateNudgeResponse {
+  data?: NudgeResource | NudgeResource[];
+}
+
+/**
+ * Send a message to every profile and every device, delivered now.
+ * Payload shape is from the web app's "Send Now" call. Targeting specific
+ * profiles or devices, and scheduling, are not captured yet and not offered.
+ */
+export async function createNudge(options: CreateNudgeOptions): Promise<NudgeResource | null> {
+  const payload: Record<string, unknown> = {
+    body: options.body,
+    deliver_at: isoWithOffset(Date.now(), options.timeZone),
+    all_profiles: true,
+    all_devices: true,
+    voice_kind: options.readAloud ? "kirk_voice" : "silent",
+  };
+  if (options.senderCategoryId) payload.sender_category_id = options.senderCategoryId;
+  const response = await getClient().post<CreateNudgeResponse>("/api/frames/{frameId}/nudges", payload);
+  const data = response?.data;
+  return Array.isArray(data) ? (data[0] ?? null) : (data ?? null);
+}

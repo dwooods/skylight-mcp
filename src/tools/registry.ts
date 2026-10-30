@@ -87,6 +87,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   plan_week_meals: "write",
   // messages (frame "nudges")
   get_messages: "read",
+  send_message: "write",
 };
 
 export interface RegisterToolsOptions {
