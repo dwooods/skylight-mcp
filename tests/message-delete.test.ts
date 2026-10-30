@@ -84,6 +84,23 @@ describe("delete_message", () => {
     expect(out.text).toContain("Confirmed gone");
   });
 
+  it("treats an empty DELETE response body as success of the call, then verifies by read-back", async () => {
+    let deleted = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit = {}) => {
+        if (init.method === "DELETE") {
+          deleted = true;
+          return new Response(null, { status: 204 });
+        }
+        return new Response(JSON.stringify({ data: deleted ? [] : [message("76667")] }), { status: 200 });
+      })
+    );
+    const out = await local("delete_message", { messageId: "76667", confirm: true });
+    expect(out.isError).toBe(false);
+    expect(out.text).toContain("Confirmed gone");
+  });
+
   it("does not report success when the message is still listed afterwards", async () => {
     stub(true);
     const out = await local("delete_message", { messageId: "76667", confirm: true });

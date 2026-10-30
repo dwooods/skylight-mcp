@@ -298,7 +298,11 @@ export class SkylightClient {
       return {} as T;
     }
 
-    return response.json() as Promise<T>;
+    // Some writes (a message delete) answer 200/204 with no body.
+    if (response.status === 204) return {} as T;
+    const raw = await response.text();
+    if (raw.trim() === "") return {} as T;
+    return JSON.parse(raw) as T;
   }
 
   /**
