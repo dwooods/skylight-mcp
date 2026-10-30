@@ -91,6 +91,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   get_messages: "read",
   send_message: "write",
   update_message: "write",
+  delete_message: "destructive",
 };
 
 export interface RegisterToolsOptions {
