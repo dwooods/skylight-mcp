@@ -90,11 +90,11 @@ describe("responses that are not plain JSON:API lists", () => {
   });
 
   it("an unrecognised shape fails with the top-level keys only, never the values", async () => {
-    stub([[/reward_points/, { points: [{ who: "SECRET-NAME" }], total: 3 }]]);
+    stub([[/reward_points/, { points: [{ who: "example-name" }], total: 3 }]]);
     const out = await run("get_reward_points");
     expect(out.isError).toBe(true);
     expect(out.text).toContain("points, total");
-    expect(out.text).not.toContain("SECRET-NAME");
+    expect(out.text).not.toContain("example-name");
   });
 
   it("helpers handle the shapes directly", () => {

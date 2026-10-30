@@ -31,17 +31,13 @@ what the hosted server leaves out.
 
 ## Quick Start
 
-### 1. Install
+You need Node 20+, a Skylight account, and an MCP client (Claude desktop, Claude
+Code, or any other). Nothing to clone or build.
+
+### 1. Sign in (once)
 
 ```bash
-git clone https://github.com/dwooods/skylight-mcp.git
-cd skylight-mcp && npm install && npm run build
-```
-
-### 2. Sign in (once)
-
-```bash
-node dist/index.js auth login
+npx -y @dwooods/skylight-mcp auth login
 ```
 
 This prints a Skylight sign-in URL. Open it in your browser and sign in. The
@@ -51,24 +47,34 @@ the Skylight home page too fast to copy. Get it from your browser history:
 Skylight result, Copy link address. Then:
 
 ```bash
-node dist/index.js auth complete
+npx -y @dwooods/skylight-mcp auth complete
 ```
 
 and paste it. Your password never touches this program; only the resulting
 OAuth tokens are stored, encrypted with a key in the macOS Keychain (plain
-`0600` file on Linux/Windows). `auth status` and `auth logout` do what they say.
+`0600` file on Linux/Windows). macOS may ask once to allow Keychain access.
+`auth status` and `auth logout` do what they say.
+
+### 2. Find your frame ID and timezone
+
+Your frame ID is the number in `https://ourskylight.com/my-skylight/<number>`
+after you sign in to the Skylight web app (see
+[Finding your Frame ID](#finding-your-frame-id)). Your timezone is an IANA name
+such as `America/Chicago`. **Set it**: it defaults to `America/New_York`, and
+event times and date windows come out wrong anywhere else.
 
 ### 3. Add to your MCP client
 
-**mcp.json:**
+**Claude desktop** (Settings → Developer → Edit Config), or any client that uses `mcp.json`:
 ```json
 {
   "mcpServers": {
     "skylight": {
-      "command": "node",
-      "args": ["/path/to/skylight-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@dwooods/skylight-mcp"],
       "env": {
-        "SKYLIGHT_FRAME_ID": "your_frame_id"
+        "SKYLIGHT_FRAME_ID": "your_frame_id",
+        "SKYLIGHT_TIMEZONE": "America/New_York"
       }
     }
   }
@@ -77,9 +83,45 @@ OAuth tokens are stored, encrypted with a key in the macOS Keychain (plain
 
 **Claude Code:**
 ```bash
-claude mcp add skylight node /path/to/skylight-mcp/dist/index.js \
-  -e SKYLIGHT_FRAME_ID=your_frame_id
+claude mcp add skylight \
+  -e SKYLIGHT_FRAME_ID=your_frame_id -e SKYLIGHT_TIMEZONE=America/New_York \
+  -- npx -y @dwooods/skylight-mcp
 ```
+
+Restart the client fully (Cmd-Q on Mac), then ask it "what's on the family
+calendar this week?"
+
+### 4. Check it
+
+```bash
+SKYLIGHT_FRAME_ID=your_frame_id SKYLIGHT_TIMEZONE=America/New_York \
+  npx -y @dwooods/skylight-mcp doctor
+```
+
+`doctor` checks Node, the frame ID, the timezone, your sign-in and one real call
+to Skylight, and says what to fix. It never prints tokens or your frame ID.
+Add `--offline` to skip the network call.
+
+### From source (contributors)
+
+```bash
+git clone https://github.com/dwooods/skylight-mcp.git
+cd skylight-mcp && npm install && npm run build
+node dist/index.js auth login    # same steps as above, using node dist/index.js
+```
+
+In the client config use `"command": "node", "args": ["/path/to/skylight-mcp/dist/index.js"]`.
+
+### Troubleshooting
+
+| Symptom | Likely cause and fix |
+|---|---|
+| Server fails to start, mentions configuration | `SKYLIGHT_FRAME_ID` missing. Run `doctor`. |
+| "Not signed in" | Run `auth login` then `auth complete`. Logins expire after 10 minutes. |
+| macOS Keychain error | The server refuses to fall back to plaintext. Unlock the Keychain or allow access when prompted. |
+| Events show at the wrong hour | `SKYLIGHT_TIMEZONE` unset (defaults to New York). Set your zone. |
+| Tools missing after an update | Fully quit and reopen the client; it caches the tool list. For a hosted connector use its "Refresh tools list". |
+| Worked yesterday, fails today | Skylight has no public API and may have changed. Run `doctor`, then check the issues. |
 
 ### Instructions for AI
 
@@ -196,12 +238,26 @@ say "use the local Skylight server" when you do.
 
 ### Deploy (once)
 
+You need a free Cloudflare account. From a clone of this repo:
+
 ```bash
 npm install
 npx wrangler login
+npm run worker:setup        # add -- --dry-run first to see the steps
+```
+
+`worker:setup` creates your KV namespace, writes a gitignored
+`wrangler.local.jsonc` with your real ID (the committed `wrangler.jsonc` keeps a
+placeholder, so nothing account-specific can be committed), asks you for a
+sign-in passphrase, deploys, sets `WORKER_URL`, deploys again and prints the
+connector URL. Re-deploy later with `npm run worker:deploy:local`.
+
+Doing it by hand instead:
+
+```bash
 cp wrangler.jsonc wrangler.local.jsonc            # gitignored: your real IDs live only here
 npx wrangler kv namespace create OAUTH_KV         # paste the id into wrangler.local.jsonc, not wrangler.jsonc
-npx wrangler secret put SETUP_PASSPHRASE          # 12+ chars; required to link an account
+npx wrangler secret put SETUP_PASSPHRASE -c wrangler.local.jsonc   # 12+ chars; required to link an account
 npm run worker:deploy:local                       # prints the Worker's URL
 npx wrangler secret put WORKER_URL -c wrangler.local.jsonc   # paste that URL (origin only, no path)
 npm run worker:deploy:local

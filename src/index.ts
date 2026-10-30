@@ -9,6 +9,12 @@ async function main() {
     return;
   }
 
+  if (process.argv[2] === "doctor") {
+    const { runDoctor } = await import("./doctor.js");
+    process.exitCode = await runDoctor(process.argv.slice(3));
+    return;
+  }
+
   const { createServer } = await import("./server.js");
   const server = await createServer();
   await server.start();
