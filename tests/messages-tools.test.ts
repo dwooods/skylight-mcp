@@ -183,3 +183,22 @@ describe("update_message", () => {
   });
 });
 
+describe("messages API version", () => {
+  it("sends the newer Skylight-Api-Version on every messages request, and leaves other endpoints alone", async () => {
+    const versions: Array<{ url: string; version: string | undefined }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (u: string, init?: RequestInit) => {
+      const url = String(u);
+      versions.push({ url, version: (init?.headers as Record<string, string> | undefined)?.["Skylight-Api-Version"] });
+      const body = url.includes("/nudges?") ? { data: [{ id: "5", type: "nudge", attributes: { body: "x", deliver_at: "2026-10-30T00:01:00.000Z", all_profiles: true, all_devices: true }, relationships: {} }] } : url.includes("/categories") ? categories : { data: [{ id: "5", type: "nudge", attributes: {} }] };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+    await run("get_messages", { date: "2026-10-29", dateEnd: "2026-10-29" });
+    await run("send_message", { body: "hi", confirm: true });
+    await run("update_message", { messageId: "5", body: "hi again" });
+    const nudge = versions.filter((v) => v.url.includes("/nudges"));
+    expect(nudge.length).toBeGreaterThanOrEqual(4);
+    for (const v of nudge) expect(v.version).toBe("2026-10-15");
+    for (const v of versions.filter((x) => !x.url.includes("/nudges"))) expect(v.version).not.toBe("2026-10-15");
+  });
+});
+

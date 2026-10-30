@@ -20,6 +20,8 @@ export interface RequestOptions {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   params?: Record<string, string | boolean | number | undefined>;
   body?: unknown;
+  /** Override Skylight-Api-Version for this request (some resources need a newer one). */
+  apiVersion?: string;
 }
 
 /**
@@ -253,7 +255,7 @@ export class SkylightClient {
    * Make an authenticated request to the Skylight API
    */
   async request<T>(endpoint: string, options: RequestOptions = {}, isRetry = false): Promise<T> {
-    const { method = "GET", params, body } = options;
+    const { method = "GET", params, body, apiVersion } = options;
 
     // Replace {frameId} placeholder with actual frame ID
     const resolvedEndpoint = endpoint.replace("{frameId}", this.config.frameId);
@@ -265,7 +267,7 @@ export class SkylightClient {
       Authorization: await this.getAuthHeader(),
       Accept: "application/json",
       "User-Agent": "SkylightMobile (web)",
-      "Skylight-Api-Version": SKYLIGHT_API_VERSION,
+      "Skylight-Api-Version": apiVersion ?? SKYLIGHT_API_VERSION,
     };
 
     if (body) {

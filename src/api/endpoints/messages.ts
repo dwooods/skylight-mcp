@@ -2,6 +2,13 @@ import { getClient } from "../client.js";
 import { addDays, offsetAt, zonedToEpoch } from "../../utils/schedule.js";
 
 /**
+ * Messages need the API version the web app sends. Under the repo-wide older
+ * version the responses omit all_profiles / all_devices / voice_kind, which
+ * made get_messages misreport recipients and the edit guard refuse everything.
+ */
+export const NUDGES_API_VERSION = "2026-10-15";
+
+/**
  * Skylight calls frame messages "nudges". Shape taken from the web app's
  * list call: GET /api/frames/{frameId}/nudges?after=<ISO>&before=<ISO>.
  */
@@ -50,7 +57,11 @@ export function isoWithOffset(epochMs: number, timeZone: string): string {
 export async function getNudges(startDate: string, endDate: string, timeZone: string): Promise<NudgeResource[]> {
   const after = isoWithOffset(zonedToEpoch(startDate, "00:00", timeZone), timeZone);
   const before = isoWithOffset(zonedToEpoch(addDays(endDate, 1), "00:00", timeZone) - 1, timeZone);
-  const response = await getClient().get<NudgesResponse>("/api/frames/{frameId}/nudges", { after, before });
+  const response = await getClient().request<NudgesResponse>("/api/frames/{frameId}/nudges", {
+    method: "GET",
+    params: { after, before },
+    apiVersion: NUDGES_API_VERSION,
+  });
   return response.data ?? [];
 }
 
@@ -81,7 +92,11 @@ export async function createNudge(options: CreateNudgeOptions): Promise<NudgeRes
     voice_kind: options.readAloud ? "kirk_voice" : "silent",
   };
   if (options.senderCategoryId) payload.sender_category_id = options.senderCategoryId;
-  const response = await getClient().post<CreateNudgeResponse>("/api/frames/{frameId}/nudges", payload);
+  const response = await getClient().request<CreateNudgeResponse>("/api/frames/{frameId}/nudges", {
+    method: "POST",
+    body: payload,
+    apiVersion: NUDGES_API_VERSION,
+  });
   const data = response?.data;
   return Array.isArray(data) ? (data[0] ?? null) : (data ?? null);
 }
@@ -133,5 +148,9 @@ export async function updateNudge(options: UpdateNudgeOptions): Promise<void> {
     voice_kind: a.voice_kind ?? "silent",
   };
   if (sender) payload.sender_category_id = sender;
-  await getClient().request(`/api/frames/{frameId}/nudges/${assertNudgeId(existing.id)}`, { method: "PATCH", body: payload });
+  await getClient().request(`/api/frames/{frameId}/nudges/${assertNudgeId(existing.id)}`, {
+    method: "PATCH",
+    body: payload,
+    apiVersion: NUDGES_API_VERSION,
+  });
 }

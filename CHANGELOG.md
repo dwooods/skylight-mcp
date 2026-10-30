@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-10-29
+
+### Fixed
+
+- **Messages**: `get_messages` showed every message as "selected devices" and listed
+  profile names instead of "everyone", and `update_message` would have refused
+  every message. Messages need the newer `Skylight-Api-Version` that the web app
+  sends (`2026-10-15`); under the repo-wide older version the responses omit
+  `all_profiles`, `all_devices` and `voice_kind`. The messages endpoints now send
+  the newer version; every other endpoint is unchanged.
+
 ## [1.4.0] - 2026-10-29
 
 ### Added
