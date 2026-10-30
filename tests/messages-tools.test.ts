@@ -136,3 +136,50 @@ describe("send_message", () => {
     expect(posts).toHaveLength(0);
   });
 });
+
+describe("update_message", () => {
+  const existingNudge = { id: "74694", type: "nudge", attributes: { body: "test message", deliver_at: "2026-10-30T00:42:36.060Z", all_profiles: true, all_devices: true, recurring: false, rrule: null, voice_kind: "silent" }, relationships: { categories: { data: [] }, sender_category: { data: { type: "category", id: "k1" } }, devices: { data: [] } } };
+  const targeted = { ...existingNudge, id: "7", attributes: { ...existingNudge.attributes, all_profiles: false } };
+  const repeating = { ...existingNudge, id: "8", attributes: { ...existingNudge.attributes, recurring: true, rrule: "FREQ=DAILY" } };
+
+  function stub(calls: Array<{ method: string; url: string; body?: Record<string, unknown> }>): void {
+    vi.stubGlobal("fetch", vi.fn(async (u: string, init?: RequestInit) => {
+      const url = String(u);
+      const method = init?.method ?? "GET";
+      calls.push({ method, url, body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined });
+      const data = url.includes("/nudges?") ? { data: [existingNudge, targeted, repeating] } : url.includes("/categories") ? categories : {};
+      return new Response(JSON.stringify(data), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+  }
+
+  it("PATCHes the whole form to the pinned endpoint, keeping time, sender and voice", async () => {
+    const calls: Array<{ method: string; url: string; body?: Record<string, unknown> }> = [];
+    stub(calls);
+    const { text, isError } = await run("update_message", { messageId: "74694", body: " test message updated " });
+    expect(isError).toBeFalsy();
+    const patch = calls.find((c) => c.method === "PATCH")!;
+    expect(patch.url).toBe("https://app.ourskylight.com/api/frames/frame-1/nudges/74694");
+    expect(patch.body).toEqual({ body: "test message updated", deliver_at: "2026-10-29T17:42:36.060-07:00", all_profiles: true, all_devices: true, voice_kind: "silent", sender_category_id: "k1" });
+    expect(text).toContain("Updated message 74694");
+  });
+
+  it("rejects non-numeric ids before any request, so an id can never steer the URL path", async () => {
+    const calls: Array<{ method: string; url: string; body?: Record<string, unknown> }> = [];
+    stub(calls);
+    for (const bad of ["74694/../photo", "../x", "7469 4", "abc", ""]) {
+      const r = await run("update_message", { messageId: bad, body: "x" });
+      expect(r.isError).toBe(true);
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it("refuses targeted or repeating messages and unknown ids without patching", async () => {
+    const calls: Array<{ method: string; url: string; body?: Record<string, unknown> }> = [];
+    stub(calls);
+    expect((await run("update_message", { messageId: "7", body: "x" })).text).toContain("Edit this one in the Skylight app");
+    expect((await run("update_message", { messageId: "8", body: "x" })).text).toContain("Edit this one in the Skylight app");
+    expect((await run("update_message", { messageId: "999", body: "x" })).text).toContain("No message with ID 999");
+    expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+  });
+});
+

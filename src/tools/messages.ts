@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { createNudge, getNudges, type NudgeResource } from "../api/endpoints/messages.js";
+import { assertNudgeId, createNudge, findNudge, getNudges, updateNudge, type NudgeResource } from "../api/endpoints/messages.js";
 import { getCategories, findCategoryByName } from "../api/endpoints/categories.js";
 import { getConfig } from "../config.js";
 import { parseDate, getDateOffset } from "../utils/dates.js";
@@ -106,6 +106,43 @@ Check get_messages first to avoid posting a duplicate.`,
         return {
           content: [{ type: "text" as const, text: `Posted to the frame${who}${readAloud ? " (read aloud)" : ""}: "${text}"${id}` }],
         };
+      } catch (error) {
+        return { content: [{ type: "text" as const, text: formatErrorForMcp(error) }], isError: true };
+      }
+    }
+  );
+  server.tool(
+    "update_message",
+    `Edit the text (and optionally the sender) of a message already on the frame.
+
+Only messages sent to everyone on all devices and not repeating can be edited;
+anything else must be edited in the Skylight app. Delivery time and read-aloud
+setting are kept. The edit is visible on the frame immediately. Get the message
+ID from get_messages (looks within 31 days either side of today).`,
+    {
+      messageId: z.string().describe("Numeric message ID from get_messages."),
+      body: z.string().min(1).max(300).describe("New message text, up to 300 characters."),
+      from: z.string().optional().describe("Optional new sender profile name. Omit to keep the current sender."),
+    },
+    async ({ messageId, body, from }) => {
+      try {
+        const id = assertNudgeId(messageId.trim());
+        const text = body.trim();
+        if (!text) throw new Error("Message is empty.");
+        const { timezone } = getConfig();
+        const existing = await findNudge(id, timezone);
+        if (!existing) throw new Error(`No message with ID ${id} within 31 days of today.`);
+        let senderCategoryId: string | undefined;
+        if (from) {
+          const match = await findCategoryByName(from);
+          if (!match) {
+            const known = (await getCategories()).map((c) => c.attributes.label).filter(Boolean).join(", ");
+            throw new Error(`No profile called "${from}". Profiles: ${known}.`);
+          }
+          senderCategoryId = match.id;
+        }
+        await updateNudge({ existing, body: text, senderCategoryId, timeZone: timezone });
+        return { content: [{ type: "text" as const, text: `Updated message ${id}: "${text}"` }] };
       } catch (error) {
         return { content: [{ type: "text" as const, text: formatErrorForMcp(error) }], isError: true };
       }

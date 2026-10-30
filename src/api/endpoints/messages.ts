@@ -85,3 +85,53 @@ export async function createNudge(options: CreateNudgeOptions): Promise<NudgeRes
   const data = response?.data;
   return Array.isArray(data) ? (data[0] ?? null) : (data ?? null);
 }
+
+/** Message ids are numeric. Validate before one ever reaches a URL path. */
+export function assertNudgeId(id: string): string {
+  if (!/^\d{1,12}$/.test(id)) throw new Error("Message ID must be numeric (see get_messages).");
+  return id;
+}
+
+/** Find one message by id within +/- 31 days of today. */
+export async function findNudge(id: string, timeZone: string): Promise<NudgeResource | null> {
+  const today = new Date();
+  const day = (offset: number): string => {
+    const d = new Date(today.getTime() + offset * 86_400_000);
+    return d.toLocaleDateString("en-CA", { timeZone });
+  };
+  const nudges = await getNudges(day(-31), day(31), timeZone);
+  return nudges.find((n) => n.id === id) ?? null;
+}
+
+export interface UpdateNudgeOptions {
+  existing: NudgeResource;
+  body: string;
+  /** Replace the sender profile id. Keeps the current sender when undefined. */
+  senderCategoryId?: string;
+  timeZone: string;
+}
+
+/**
+ * Edit a message the way the web app does: PATCH with the whole form.
+ * Only messages sent to everyone on all devices and not repeating are
+ * supported, because those are the only shapes captured.
+ */
+export async function updateNudge(options: UpdateNudgeOptions): Promise<void> {
+  const { existing } = options;
+  const a = existing.attributes;
+  if (a.all_profiles !== true || a.all_devices !== true || a.recurring === true || a.rrule) {
+    throw new Error("Only messages sent to everyone on all devices, and not repeating, can be edited here. Edit this one in the Skylight app.");
+  }
+  const deliverAt = Date.parse(a.deliver_at ?? "");
+  if (Number.isNaN(deliverAt)) throw new Error("Message has no delivery time; edit it in the Skylight app.");
+  const sender = options.senderCategoryId ?? existing.relationships?.sender_category?.data?.id;
+  const payload: Record<string, unknown> = {
+    body: options.body,
+    deliver_at: isoWithOffset(deliverAt, options.timeZone),
+    all_profiles: true,
+    all_devices: true,
+    voice_kind: a.voice_kind ?? "silent",
+  };
+  if (sender) payload.sender_category_id = sender;
+  await getClient().request(`/api/frames/{frameId}/nudges/${assertNudgeId(existing.id)}`, { method: "PATCH", body: payload });
+}

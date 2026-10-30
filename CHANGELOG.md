@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `confirm: true` after the user has approved the text. Presigned audio URLs, which carry
   temporary storage credentials, are never returned.
 
+- `update_message` edits a message's text or sender (PATCH with the whole form, as
+  the web app does) for messages sent to everyone on all devices that don't repeat.
+  Message IDs are validated as numeric before they reach a URL path.
+
 ### Not yet supported
 
 - Targeting specific profiles or devices, scheduling, repeats and voice notes.
