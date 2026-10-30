@@ -74,6 +74,8 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   get_recipes: "read",
   get_recipe: "read",
   create_meal_sitting: "write",
+  update_meal_sitting: "write",
+  delete_meal_sitting: "destructive",
   create_recipe: "write",
   update_recipe: "write",
   add_recipe_to_grocery_list: "write",
