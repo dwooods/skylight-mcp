@@ -106,6 +106,29 @@ describe("profile targeting", () => {
     expect(writes(seen)[0]!.body).toMatchObject({ category_ids: ["11", "13"] });
   });
 
+  it("a local time with no offset is sent with the frame zone's offset, not as UTC", async () => {
+    const seen = stub();
+    const pacific = { ...config, timezone: "America/Los_Angeles" };
+    const server = new McpServer({ name: "skylight", version: "t" });
+    registerTools(server, { hasPlus: true, photos: false });
+    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    await server.connect(transport);
+    await runWithContext({ client: new SkylightClient(pacific, null), config: pacific }, () =>
+      transport.handleRequest(rpc("create_calendar_event", { summary: "X", startsAt: "2026-10-31T08:00:00", endsAt: "2026-10-31T08:15:00" }))
+    );
+    const body = writes(seen)[0]!.body!;
+    expect(body.starts_at).toBe("2026-10-31T08:00:00.000-07:00");
+    expect(body.ends_at).toBe("2026-10-31T08:15:00.000-07:00");
+  });
+
+  it("withFrameOffset leaves offset-bearing, Z and date-only values alone and handles DST", async () => {
+    const { withFrameOffset } = await import("../src/api/endpoints/calendar.js");
+    expect(withFrameOffset("2026-10-31T08:00:00Z", "America/Los_Angeles")).toBe("2026-10-31T08:00:00Z");
+    expect(withFrameOffset("2026-10-31T08:00:00-07:00", "America/Los_Angeles")).toBe("2026-10-31T08:00:00-07:00");
+    expect(withFrameOffset("2026-11-03", "America/Los_Angeles")).toBe("2026-11-03");
+    expect(withFrameOffset("2026-11-03T08:00", "America/Los_Angeles")).toBe("2026-11-03T08:00:00.000-08:00");
+  });
+
   it("an unknown profile on an event writes nothing", async () => {
     const seen = stub();
     const out = await local("create_calendar_event", { summary: "X", startsAt: "2026-11-03T10:00:00", endsAt: "2026-11-03T11:00:00", profiles: ["Nobody"] });

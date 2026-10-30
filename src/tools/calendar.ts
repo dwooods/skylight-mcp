@@ -7,6 +7,7 @@ import {
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
+  withFrameOffset,
 } from "../api/endpoints/calendar.js";
 import { getTodayDate, parseDate, formatDateForDisplay } from "../utils/dates.js";
 import { formatErrorForMcp } from "../utils/errors.js";
@@ -208,8 +209,8 @@ Related: get_family_members lists the profile names and IDs.`,
         const resolved = profiles?.length ? (await resolveProfileIds(profiles)).ids : categoryIds;
         const event = await createCalendarEvent({
           summary,
-          starts_at: startsAt,
-          ends_at: endsAt,
+          starts_at: withFrameOffset(startsAt, config.timezone),
+          ends_at: withFrameOffset(endsAt, config.timezone),
           all_day: allDay,
           description,
           location,
@@ -271,8 +272,9 @@ Returns: The updated event details.`,
         if (profiles?.length && categoryIds?.length) throw new Error("Give profiles or categoryIds, not both.");
         const updates: Record<string, unknown> = {};
         if (summary !== undefined) updates.summary = summary;
-        if (startsAt !== undefined) updates.starts_at = startsAt;
-        if (endsAt !== undefined) updates.ends_at = endsAt;
+        const tz = getConfig().timezone;
+        if (startsAt !== undefined) updates.starts_at = withFrameOffset(startsAt, tz);
+        if (endsAt !== undefined) updates.ends_at = withFrameOffset(endsAt, tz);
         if (allDay !== undefined) updates.all_day = allDay;
         if (description !== undefined) updates.description = description;
         if (location !== undefined) updates.location = location;
