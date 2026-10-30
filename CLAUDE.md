@@ -104,3 +104,10 @@ The release workflow (`.github/workflows/release.yml`) will:
 
 - **Calendar date_max is exclusive**: When querying calendar events, `date_max` is treated as exclusive. The code adds 1 day to include events on the end date.
 - **Auth format**: Managed email/password auth now uses OAuth and bearer tokens. Manual token auth may still use bearer or basic depending on the captured token.
+
+## README support matrix
+
+Any change that adds, removes, renames or re-classifies a tool, or changes what a tool can and cannot do
+(new limits, hosted vs local availability, live-test status), must update the "What is supported" and
+"Available Tools" sections of README.md in the same change. `tests/readme.test.ts` fails if a tool in
+`TOOL_EFFECTS` is missing from the README or its effect differs.
