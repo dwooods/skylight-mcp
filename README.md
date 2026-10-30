@@ -160,8 +160,34 @@ resource server. Signing in is the same browser-paste flow as the CLI; your
 Skylight password never reaches the Worker, and the Skylight tokens are kept
 encrypted in the OAuth grant, not in a database you manage.
 
-The hosted server exposes **read and create/update tools only**: no
-`delete_*` tools and no photo uploads. Use the local server if you need those.
+### Which tools the hosted server exposes, and why
+
+By default the hosted server registers **read and create/update tools only**:
+no `delete_*` tools and no photo uploads. The local (stdio) server registers
+everything. This is a deliberate choice, not a limitation of the Worker:
+
+- The hosted server is what Claude Duet drives proactively, sometimes
+  unattended. A misread instruction that *creates* a wrong chore is a
+  nuisance; one that *deletes* a calendar event is data loss with no undo
+  from Claude. Leaving deletes off the hosted path caps the worst outcome at
+  "something extra to clean up".
+- Photo tools are uploads the Worker has no reason to carry.
+
+If you want full parity on the hosted server, change one line in
+`src/worker/mcp.ts` and redeploy:
+
+```ts
+export const HOSTED_EFFECTS: readonly ToolEffect[] = ["read", "write", "destructive"];
+```
+
+and set `photos: true` in the same file if you also want photo uploads.
+Every tool's classification lives in `src/tools/registry.ts`, so you can also
+carve out a profile of your own (read-only, for example, is `["read"]`).
+
+If you run both servers in the Claude desktop app, Claude sees two sets of
+mostly duplicate tools and may use either for writes. Disable the local one
+in Settings → Connectors when you do not need the delete or photo tools, or
+say "use the local Skylight server" when you do.
 
 ### Deploy (once)
 
