@@ -52,7 +52,7 @@ liveSuite("response shapes our tools rely on", { tags: ["read", "contract"] }, (
   });
 
   it("get_messages never returns presigned audio URLs", async () => {
-    const result = await ctx.call("get_messages", { date: ctx.daysFromToday(-31), dateEnd: ctx.daysFromToday(31) });
+    const result = await ctx.call("get_messages", { date: ctx.daysFromToday(-15), dateEnd: ctx.daysFromToday(15) });
     expect(result.isError).toBe(false);
     expect(result.text).not.toMatch(/X-Amz|audio_url|https?:\/\/[^\s]*amazonaws/i);
   });

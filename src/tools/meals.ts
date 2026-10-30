@@ -17,6 +17,7 @@ import {
   deleteMealSitting,
 } from "../api/endpoints/meals.js";
 import { parseDate, formatDateForDisplay, getTodayDate, getDateOffset } from "../utils/dates.js";
+import { addDays } from "../utils/schedule.js";
 import { formatErrorForMcp } from "../utils/errors.js";
 import { getConfig } from "../config.js";
 
@@ -305,7 +306,9 @@ Returns: List of scheduled meals.`,
 
         const sittings = await getMealSittings({
           dateMin: startDate,
-          dateMax: endDate,
+          // Skylight's date_max leaves out the end day (a one-day query returns nothing),
+          // so ask for one day more; the loop below drops anything past endDate.
+          dateMax: addDays(endDate, 1),
         });
 
         if (sittings.length === 0) {

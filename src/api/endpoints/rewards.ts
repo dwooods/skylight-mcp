@@ -1,3 +1,4 @@
+import { resourceList } from "./shape.js";
 import { getClient } from "../client.js";
 import type {
   RewardsResponse,
@@ -35,7 +36,7 @@ export async function getRewardPoints(): Promise<RewardPointResource[]> {
   const response = await client.get<RewardPointsResponse>(
     "/api/frames/{frameId}/reward_points"
   );
-  return response.data;
+  return resourceList<RewardPointResource>(response, "reward points");
 }
 
 export interface CreateRewardOptions {

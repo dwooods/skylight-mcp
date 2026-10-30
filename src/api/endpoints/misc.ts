@@ -1,4 +1,5 @@
 import { getClient } from "../client.js";
+import { resourceList } from "./shape.js";
 
 export interface AvatarResource {
   type: "avatar";
@@ -43,5 +44,5 @@ export async function getAvatars(): Promise<AvatarResource[]> {
 export async function getColors(): Promise<ColorResource[]> {
   const client = getClient();
   const response = await client.get<ColorsResponse>("/api/colors");
-  return response.data;
+  return resourceList<ColorResource>(response, "colors");
 }
