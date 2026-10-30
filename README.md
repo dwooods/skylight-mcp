@@ -292,6 +292,22 @@ Not supported yet: targeting specific profiles or devices, scheduling, repeats, 
 | `get_frame_info` | Get household/frame information |
 | `get_devices` | List Skylight devices |
 
+### Meal Tools
+
+Meals and recipes need Skylight Plus.
+
+| Tool | Effect | Description |
+|------|--------|-------------|
+| `get_meal_categories` | read | Breakfast, Lunch, Dinner, Snack and their IDs |
+| `get_meal_sittings` | read | Scheduled meals in a date range, with sitting IDs |
+| `create_meal_sitting` | write | Schedule a meal on a date (free text or a saved recipe) |
+| `update_meal_sitting` | write | Rename, re-categorise, add a note to, or move a one-off meal, by sitting ID and its current date. Repeating meals are refused. |
+| `delete_meal_sitting` | destructive | Delete a one-off meal. Local server only. Previews unless `confirm: true`; reports success only when Skylight confirms the removal. |
+| `get_recipes` / `get_recipe` | read | Browse saved recipes |
+| `create_recipe` / `update_recipe` | write | Add or change a recipe |
+| `delete_recipe` | destructive | Delete a recipe. Local server only. |
+| `add_recipe_to_grocery_list` | write | Push a recipe's ingredients to the grocery list |
+
 ### Reward Tools
 
 | Tool | Description |

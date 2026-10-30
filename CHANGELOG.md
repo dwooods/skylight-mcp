@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-10-30
+
+### Added
+
+- **Meals**: `update_meal_sitting` (write) renames or moves a scheduled meal, or
+  changes its note or category, and `delete_meal_sitting` (destructive, local
+  server only) removes one. Both use the web app's own calls:
+  `PATCH` and `DELETE` on `/meals/sittings/{id}/instances/{date}`, sent with the
+  newer `Skylight-Api-Version` (`2026-10-15`). The edit sends the whole form, with
+  unchanged fields read back first. A move keeps the current date in the path and
+  puts the new date in the body. Only one-off meals are supported; repeating meals
+  are refused and left to the Skylight app, because editing one occurrence of a
+  series was not captured. `delete_meal_sitting` previews unless `confirm: true`
+  and only reports success when Skylight lists the sitting in
+  `meta.deleted_sitting_ids`. Sitting IDs and dates are format-checked before they
+  reach a URL path.
+
 ## [1.4.1] - 2026-10-29
 
 ### Fixed

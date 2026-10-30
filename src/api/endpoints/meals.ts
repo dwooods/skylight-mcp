@@ -1,4 +1,5 @@
 import { getClient } from "../client.js";
+import { addDays } from "../../utils/schedule.js";
 
 // Meal types
 export interface MealCategoryResource {
@@ -243,4 +244,118 @@ export async function createMealSitting(
   const data = Array.isArray(response.data) ? response.data[0] : response.data;
   if (!data) throw new Error("Skylight returned an empty response when creating the meal sitting");
   return data;
+}
+
+/**
+ * Editing and deleting a sitting use the API version the web app sends; the
+ * captures behind them were made with it. Create and list keep the repo default.
+ */
+export const MEAL_EDIT_API_VERSION = "2026-10-15";
+
+/** Sitting ids are numeric. Validate before one ever reaches a URL path. */
+export function assertSittingId(id: string): string {
+  if (!/^\d{1,12}$/.test(id)) throw new Error("Sitting ID must be numeric (see get_meal_sittings).");
+  return id;
+}
+
+/** A real calendar date as YYYY-MM-DD, validated before it reaches a URL path. */
+export function assertIsoDate(date: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  const valid = m && new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!)).toISOString().slice(0, 10) === date;
+  if (!valid) throw new Error("Date must be a real calendar date in YYYY-MM-DD form.");
+  return date;
+}
+
+interface SittingEnvelope {
+  data?: MealSittingResource[];
+  meta?: { deleted_sitting_ids?: Array<string | number> };
+}
+
+function instanceQuery(date: string): Record<string, string> {
+  return {
+    date_min: date,
+    date_max: addDays(date, 1),
+    include: "meal_category,meal_recipe,profiles",
+  };
+}
+
+/**
+ * Find the sitting that has an occurrence on `date`. Read under the edit API
+ * version so recurring/rrule fields are present for the one-off guard.
+ */
+export async function findMealSitting(sittingId: string, date: string): Promise<MealSittingResource | null> {
+  assertSittingId(sittingId);
+  assertIsoDate(date);
+  const response = await getClient().request<SittingEnvelope>("/api/frames/{frameId}/meals/sittings", {
+    method: "GET",
+    params: instanceQuery(date),
+    apiVersion: MEAL_EDIT_API_VERSION,
+  });
+  return (response.data ?? []).find((s) => s.id === sittingId && s.attributes.instances?.includes(date)) ?? null;
+}
+
+/** Only one-off sittings were captured. Repeating ones are edited in the app. */
+function assertOneOff(sitting: MealSittingResource): void {
+  const a = sitting.attributes;
+  if (a.recurring === true || a.rrule) {
+    throw new Error(
+      "This meal repeats. Editing or deleting one occurrence of a repeating meal is not supported here; use the Skylight app."
+    );
+  }
+}
+
+export interface UpdateMealSittingOptions {
+  existing: MealSittingResource;
+  /** The occurrence being edited (its current date). */
+  date: string;
+  /** Move the meal to this date. */
+  newDate?: string;
+  summary?: string;
+  note?: string;
+  mealCategoryId?: string;
+}
+
+/**
+ * Edit a one-off sitting the way the web app does: PATCH the whole form to
+ * /meals/sittings/{id}/instances/{currentDate}. Fields not being changed are
+ * sent back as they are, because the API takes the full form.
+ */
+export async function updateMealSitting(options: UpdateMealSittingOptions): Promise<void> {
+  const { existing } = options;
+  assertOneOff(existing);
+  const date = assertIsoDate(options.date);
+  const target = assertIsoDate(options.newDate ?? date);
+  const a = existing.attributes;
+  const payload = {
+    date: target,
+    note: options.note ?? (typeof a.note === "string" ? a.note : ""),
+    rrule: null,
+    summary: options.summary ?? a.summary ?? "",
+    description: typeof a.description === "string" ? a.description : "",
+    meal_category_id: options.mealCategoryId ?? existing.relationships?.meal_category?.data?.id ?? null,
+    meal_recipe_id: existing.relationships?.meal_recipe?.data?.id ?? null,
+    profile_ids: ((existing.relationships as { profiles?: { data?: Array<{ id: string }> } } | undefined)?.profiles?.data ?? []).map(
+      (p) => p.id
+    ),
+    saveToRecipeBox: false,
+  };
+  await getClient().request<SittingEnvelope>(
+    `/api/frames/{frameId}/meals/sittings/${assertSittingId(existing.id)}/instances/${date}`,
+    { method: "PATCH", body: payload, params: instanceQuery(date), apiVersion: MEAL_EDIT_API_VERSION }
+  );
+}
+
+/**
+ * Delete a one-off sitting: DELETE /meals/sittings/{id}/instances/{date}, no
+ * body. Returns whether Skylight confirmed the removal in meta.deleted_sitting_ids.
+ */
+export async function deleteMealSitting(existing: MealSittingResource, date: string): Promise<boolean> {
+  assertOneOff(existing);
+  assertIsoDate(date);
+  const id = assertSittingId(existing.id);
+  const response = await getClient().request<SittingEnvelope>(
+    `/api/frames/{frameId}/meals/sittings/${id}/instances/${date}`,
+    { method: "DELETE", params: instanceQuery(date), apiVersion: MEAL_EDIT_API_VERSION }
+  );
+  return (response?.meta?.deleted_sitting_ids ?? []).map(String).includes(id);
 }

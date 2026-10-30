@@ -12,6 +12,9 @@ import {
   addRecipeToGroceryList,
   getMealSittings,
   createMealSitting,
+  findMealSitting,
+  updateMealSitting,
+  deleteMealSitting,
 } from "../api/endpoints/meals.js";
 import { parseDate, formatDateForDisplay, getTodayDate, getDateOffset } from "../utils/dates.js";
 import { formatErrorForMcp } from "../utils/errors.js";
@@ -402,6 +405,159 @@ Returns: The created meal sitting.`,
               text: `Scheduled "${what}" for ${formatDateForDisplay(mealDate)} (sitting ID: ${sitting.id})`,
             },
           ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text" as const, text: formatErrorForMcp(error) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // update_meal_sitting tool
+  server.tool(
+    "update_meal_sitting",
+    `Edit or move a scheduled meal - Plus subscription required.
+
+Use this when:
+- Renaming a planned meal, or changing its note or category
+- Moving a meal to another day
+
+Parameters:
+- sittingId (required): from get_meal_sittings
+- date (required): the meal's CURRENT date (YYYY-MM-DD), also from get_meal_sittings
+- newDate: move the meal to this date
+- summary: new meal name
+- note: new note
+- mealCategoryId: move to another meal category (use get_meal_categories)
+
+Give at least one change. Only one-off meals can be edited here; repeating meals
+must be edited in the Skylight app.
+
+Returns: What changed.`,
+    {
+      sittingId: z.string().describe("Sitting ID from get_meal_sittings"),
+      date: z.string().describe("The meal's current date (YYYY-MM-DD)"),
+      newDate: z.string().optional().describe("Move the meal to this date (YYYY-MM-DD or 'tomorrow')"),
+      summary: z.string().max(200).optional().describe("New meal name"),
+      note: z.string().max(500).optional().describe("New note"),
+      mealCategoryId: z.string().optional().describe("New meal category ID"),
+    },
+    async ({ sittingId, date, newDate, summary, note, mealCategoryId }) => {
+      try {
+        if (newDate === undefined && summary === undefined && note === undefined && mealCategoryId === undefined) {
+          return {
+            content: [{ type: "text" as const, text: "Nothing to change. Give newDate, summary, note or mealCategoryId." }],
+            isError: true,
+          };
+        }
+        if (summary !== undefined && !summary.trim()) {
+          return { content: [{ type: "text" as const, text: "summary cannot be empty." }], isError: true };
+        }
+        const config = getConfig();
+        const current = parseDate(date, config.timezone);
+        const target = newDate ? parseDate(newDate, config.timezone) : undefined;
+
+        const existing = await findMealSitting(sittingId, current);
+        if (!existing) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `No meal with sitting ID ${sittingId} on ${formatDateForDisplay(current)}. Check get_meal_sittings for the ID and its current date.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const was = existing.attributes.summary?.trim() || "(no name)";
+        await updateMealSitting({
+          existing,
+          date: current,
+          newDate: target,
+          summary: summary?.trim(),
+          note,
+          mealCategoryId,
+        });
+
+        const changes: string[] = [];
+        if (summary !== undefined) changes.push(`renamed "${was}" to "${summary.trim()}"`);
+        if (target && target !== current) changes.push(`moved from ${formatDateForDisplay(current)} to ${formatDateForDisplay(target)}`);
+        if (note !== undefined) changes.push("note updated");
+        if (mealCategoryId !== undefined) changes.push(`category set to ${mealCategoryId}`);
+        return {
+          content: [{ type: "text" as const, text: `Updated meal (sitting ID: ${sittingId}): ${changes.join("; ")}.` }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text" as const, text: formatErrorForMcp(error) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // delete_meal_sitting tool
+  server.tool(
+    "delete_meal_sitting",
+    `Delete a scheduled meal - Plus subscription required. THIS CANNOT BE UNDONE.
+
+Use this when:
+- Removing a meal that was planned by mistake or is no longer happening
+
+Parameters:
+- sittingId (required): from get_meal_sittings
+- date (required): the meal's date (YYYY-MM-DD)
+- confirm: must be true to delete. Without it nothing is deleted and the meal that would be removed is shown.
+
+Only one-off meals can be deleted here; repeating meals must be handled in the Skylight app.
+
+Returns: Confirmation that Skylight removed the meal.`,
+    {
+      sittingId: z.string().describe("Sitting ID from get_meal_sittings"),
+      date: z.string().describe("The meal's date (YYYY-MM-DD)"),
+      confirm: z.boolean().optional().describe("Set true to actually delete. Default: preview only."),
+    },
+    async ({ sittingId, date, confirm }) => {
+      try {
+        const config = getConfig();
+        const day = parseDate(date, config.timezone);
+        const existing = await findMealSitting(sittingId, day);
+        if (!existing) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `No meal with sitting ID ${sittingId} on ${formatDateForDisplay(day)}. Nothing deleted.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        const what = existing.attributes.summary?.trim() || "(no name)";
+        if (confirm !== true) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `NOT DELETED. This would permanently delete "${what}" on ${formatDateForDisplay(day)} (sitting ID: ${sittingId}). Call again with confirm: true to proceed.`,
+              },
+            ],
+          };
+        }
+        const removed = await deleteMealSitting(existing, day);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: removed
+                ? `Deleted "${what}" on ${formatDateForDisplay(day)} (sitting ID: ${sittingId}).`
+                : `Skylight accepted the request but did not confirm the removal of sitting ${sittingId}. Check get_meal_sittings.`,
+            },
+          ],
+          ...(removed ? {} : { isError: true }),
         };
       } catch (error) {
         return {
