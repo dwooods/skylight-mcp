@@ -17,12 +17,17 @@ calendar, chores, lists, meals and rewards.
 
 ## Features
 
-- **Calendar**: Query calendar events ("What's on my calendar today?")
-- **Chores**: View and create chores ("Add emptying dishwasher to chores")
-- **Lists**: View grocery and to-do lists ("What's on the grocery list?")
-- **Tasks**: Add items to the task box ("Add XYZ to my task list")
-- **Family**: View family members and devices
-- **Rewards**: Check reward points and available rewards
+- **Calendar**: read events and connected calendars; create, update and delete events
+- **Planning**: one-call week overview, overlap detection, free-slot search, bulk meal planning
+- **Meals** (Plus): see, add, rename, move and delete scheduled meals; browse and edit recipes
+- **Messages**: read the notes shown on the frame, post one (permanent), edit one
+- **Chores and tasks**: read, create, update and delete chores; add to the task box
+- **Lists**: read, create, update and delete lists and items
+- **Family**: read profiles, devices and household info
+- **Rewards** (Plus): read points and rewards; create, update, redeem and delete
+
+See [What is supported](#what-is-supported) for what is tested, what is not, and
+what the hosted server leaves out.
 
 ## Quick Start
 
@@ -229,7 +234,56 @@ To revoke: remove the connector in Claude (revokes the grant), or
 `npx wrangler kv key list --binding OAUTH_KV` and delete, or change your
 Skylight password.
 
+## What is supported
+
+Status vocabulary, used honestly:
+
+- **Live-tested**: run against a real Skylight frame by this project, with the result checked by reading back.
+- **Inherited**: came from the upstream project and works there, but this project has not re-run it live.
+- **Mocked only**: covered by this project's mocked tests; not yet run against real data.
+
+Skylight has no public API. Everything below can break when Skylight ships a
+web release, which happens without notice. The web app version and API version
+last captured are recorded in the repository's build log.
+
+| Area | What works | Hosted server (Claude Duet) | Status |
+|------|------------|------------------------------|--------|
+| Calendar | Read events and source calendars; create, update, delete events | Everything except delete | Reads live-tested; writes inherited |
+| Planning | Week overview, conflicts, free slots, bulk meal plan | All four | Week overview live-tested; the rest mocked only |
+| Meals (Plus) | Read categories and meals; create, rename, move, delete one-off meals | Everything except delete | Live-tested |
+| Recipes (Plus) | Read, create, update, delete recipes; push ingredients to the grocery list | Everything except delete | Inherited |
+| Messages | Read; post to everyone (silent by default); edit text and sender | All three | Read, post and edit live-tested |
+| Chores | Read, create, update, delete | Everything except delete | Read live-tested; writes inherited |
+| Task box | Add a task | Yes | Inherited |
+| Lists | Read lists and items; create, update, delete lists and items | Everything except delete | Inherited |
+| Family and devices | Profiles, avatars, colours, household info, devices | Yes | Inherited |
+| Rewards (Plus) | Read points and rewards; create, update, redeem, unredeem, delete | Everything except delete | Inherited |
+| Photos (Plus) | List albums | No | Inherited |
+
+### Not supported
+
+Nothing here is hidden behind a flag. It is either unavailable from Skylight or not yet captured.
+
+- **Messages**: deleting one (Skylight offers no way), sending to specific profiles or devices, scheduling, repeating, voice notes, and read-aloud (the option exists on `send_message` but was not tested live).
+- **Meals**: editing or deleting a repeating meal (it is refused, because the behaviour of changing one occurrence of a series was not captured), saving a meal to the recipe box from the edit form, and Skylight's own "Plan Meals" feature.
+- **Task box**: listing, editing or completing tasks. It is create-only.
+- **Profiles**: creating or editing them. Read-only.
+- **Settings, account, notifications, sleep schedule, device navigation**: none of these are exposed.
+- **Photos**: uploads and anything beyond listing albums.
+- **Accounts with more than one frame**: the server is pinned to one frame ID.
+- **Credentials**: sign-in, sign-out and token access are CLI commands (`skylight-mcp auth ...`) and are deliberately not MCP tools.
+
+### Keeping this honest
+
+Every tool must appear in the tables below with the effect it really has, and a
+test fails if one is missing or mislabelled. When you add, change or remove a
+tool, update this section in the same change.
+
 ## Available Tools
+
+Effects: **read** changes nothing; **write** creates or edits and can be edited
+again; **destructive** cannot be undone from the API. The hosted server registers
+read and write only, so destructive tools exist on the local server alone.
 
 ### Planning Tools
 
@@ -255,42 +309,53 @@ Messages are the notes shown on the frame (Skylight's web app calls them "nudges
 | `send_message` | write | Post a message to everyone, on all devices, now. **Permanent: Skylight has no delete.** Previews by default and posts only with `confirm: true`. Read aloud is **off** unless asked for. Optional sender profile. Up to 300 characters. |
 | `update_message` | write | Edit the text (and optionally the sender) of an existing message. Only messages sent to everyone on all devices that don't repeat; others must be edited in the app. |
 
-Not supported yet: targeting specific profiles or devices, scheduling, repeats, voice notes.
-
 ### Calendar Tools
 
-| Tool | Description |
-|------|-------------|
-| `get_calendar_events` | Get calendar events for a date range |
-| `get_source_calendars` | List connected calendar sources (Google, iCloud, etc.) |
+| Tool | Effect | Description |
+|------|--------|-------------|
+| `get_calendar_events` | read | Events for a date range |
+| `get_source_calendars` | read | Connected calendar sources (Google, iCloud, etc.) |
+| `create_calendar_event` | write | Add an event |
+| `update_calendar_event` | write | Change an event |
+| `delete_calendar_event` | destructive | Delete an event. Local server only. |
 
 ### Chore Tools
 
-| Tool | Description |
-|------|-------------|
-| `get_chores` | Get chores with optional filters (date, assignee, status) |
-| `create_chore` | Create a new chore with optional recurrence |
-
-### List Tools
-
-| Tool | Description |
-|------|-------------|
-| `get_lists` | Get all available lists |
-| `get_list_items` | Get items from a specific list |
+| Tool | Effect | Description |
+|------|--------|-------------|
+| `get_chores` | read | Chores with optional filters (date, assignee, status) |
+| `create_chore` | write | Create a chore, optionally recurring |
+| `update_chore` | write | Rename, reschedule, reassign, complete or reopen a chore |
+| `delete_chore` | destructive | Delete a chore. Local server only. |
 
 ### Task Tools
 
-| Tool | Description |
-|------|-------------|
-| `create_task` | Add a task to the task box |
+| Tool | Effect | Description |
+|------|--------|-------------|
+| `create_task` | write | Add a task to the task box (create-only; there is no list tool) |
+
+### List Tools
+
+| Tool | Effect | Description |
+|------|--------|-------------|
+| `get_lists` | read | All lists |
+| `get_list_items` | read | Items in one list |
+| `create_list` | write | Create a list |
+| `update_list` | write | Rename or change a list |
+| `create_list_item` | write | Add an item |
+| `update_list_item` | write | Edit or tick off an item |
+| `delete_list` | destructive | Delete a list. Local server only. |
+| `delete_list_item` | destructive | Delete an item. Local server only. |
 
 ### Family Tools
 
-| Tool | Description |
-|------|-------------|
-| `get_family_members` | Get family member profiles |
-| `get_frame_info` | Get household/frame information |
-| `get_devices` | List Skylight devices |
+| Tool | Effect | Description |
+|------|--------|-------------|
+| `get_family_members` | read | Family member profiles |
+| `get_frame_info` | read | Household/frame information |
+| `get_devices` | read | Skylight devices |
+| `get_avatars` | read | Available profile avatars |
+| `get_colors` | read | Available profile colours |
 
 ### Meal Tools
 
@@ -310,10 +375,25 @@ Meals and recipes need Skylight Plus.
 
 ### Reward Tools
 
-| Tool | Description |
-|------|-------------|
-| `get_rewards` | Get available rewards |
-| `get_reward_points` | Get reward points balance |
+Rewards need Skylight Plus.
+
+| Tool | Effect | Description |
+|------|--------|-------------|
+| `get_rewards` | read | Available rewards |
+| `get_reward_points` | read | Reward points balance |
+| `create_reward` | write | Add a reward |
+| `update_reward` | write | Change a reward |
+| `redeem_reward` | write | Redeem a reward, spending points |
+| `unredeem_reward` | write | Undo a redemption |
+| `delete_reward` | destructive | Delete a reward. Local server only. |
+
+### Photo Tools
+
+Needs Skylight Plus. Local server only.
+
+| Tool | Effect | Description |
+|------|--------|-------------|
+| `get_albums` | read | Photo albums |
 
 ## Example Queries
 
