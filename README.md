@@ -20,7 +20,7 @@ calendar, chores, lists, meals and rewards.
 - **Calendar**: read events and connected calendars; create, update and delete events
 - **Planning**: one-call week overview, overlap detection, free-slot search, bulk meal planning
 - **Meals** (Plus): see, add, rename, move and delete scheduled meals; browse and edit recipes
-- **Messages**: read the notes shown on the frame, post one (permanent), edit one
+- **Messages**: sending to specific devices, scheduling, repeating, voice notes, editing a message that was sent to specific profiles (the app's edit form does not allow changing recipients), and read-aloud (the option exists on `send_message` but was not tested live).
 - **Chores and tasks**: read, create, update and delete chores; add to the task box
 - **Lists**: read, create, update and delete lists and items
 - **Family**: read profiles, devices and household info
@@ -248,15 +248,15 @@ last captured are recorded in the repository's build log.
 
 | Area | What works | Hosted server (Claude Duet) | Status |
 |------|------------|------------------------------|--------|
-| Calendar | Read events and source calendars; create, update, delete events | Everything except delete | Reads live-tested; writes inherited |
+| Calendar | Read events and source calendars; create (with profiles), update, delete events | Everything except delete | Read, create and delete live-tested; update inherited |
 | Planning | Week overview, conflicts, free slots, bulk meal plan | All four | Week overview live-tested; the rest mocked only |
 | Meals (Plus) | Read categories and meals; create, rename, move, delete one-off meals | Everything except delete | Live-tested |
 | Recipes (Plus) | Read, create, update, delete recipes; push ingredients to the grocery list | Everything except delete | Inherited |
-| Messages | Read; post to everyone (silent by default); edit text and sender | All three | Read, post and edit live-tested |
+| Messages | Read; post to everyone or to named profiles (silent by default); edit text and sender (everyone-messages only); delete | All four, delete included | Live-tested |
 | Chores | Read, create, update, delete | Everything except delete | Read live-tested; writes inherited |
 | Task box | Add a task | Yes | Inherited |
 | Lists | Read lists and items; create, update, delete lists and items | Everything except delete | Inherited |
-| Family and devices | Profiles, avatars, colours, household info, devices | Yes | Inherited |
+| Family and devices | Profiles with IDs, avatars, colours, household info, devices | Yes | Profiles live-tested; the rest inherited |
 | Rewards (Plus) | Read points and rewards; create, update, redeem, unredeem, delete | Everything except delete | Inherited |
 | Photos (Plus) | List albums | No | Inherited |
 
@@ -306,9 +306,9 @@ Messages are the notes shown on the frame (Skylight's web app calls them "nudges
 | Tool | Effect | Description |
 |------|--------|-------------|
 | `get_messages` | read | Messages in a date range with time, text, recipients and sender. Never returns the presigned audio URLs. |
-| `send_message` | write | Post a message to everyone, on all devices, now. **Effectively permanent: the app has no delete; `delete_message` is experimental.** Previews by default and posts only with `confirm: true`. Read aloud is **off** unless asked for. Optional sender profile. Up to 300 characters. |
+| `send_message` | write | Post a message to the frame now, on all devices. Previews by default and posts only with `confirm: true`. Read aloud is **off** unless asked for. `to` names the profiles to send to (see `get_family_members`); omit it for everyone. Optional sender profile. Up to 300 characters. The app has no delete button, but `delete_message` removes one. |
 | `update_message` | write | Edit the text (and optionally the sender) of an existing message. Only messages sent to everyone on all devices that don't repeat; others must be edited in the app. |
-| `delete_message` | destructive | **Experimental.** Delete a message. The app has no delete button; this uses an endpoint other Skylight clients document and is unverified on this account until a live run. Available on both the local and hosted servers (the one destructive tool the hosted server offers). Previews unless `confirm: true`, then reads back and reports success only if the message is gone. |
+| `delete_message` | destructive | Delete a message. The app has no delete button; this uses `DELETE /nudges/{id}`, documented by other Skylight clients and verified on a real frame. Available on both the local and hosted servers (the one destructive tool the hosted server offers). Previews unless `confirm: true`, then reads back and reports success only if the message is gone. |
 
 ### Calendar Tools
 
@@ -316,8 +316,8 @@ Messages are the notes shown on the frame (Skylight's web app calls them "nudges
 |------|--------|-------------|
 | `get_calendar_events` | read | Events for a date range |
 | `get_source_calendars` | read | Connected calendar sources (Google, iCloud, etc.) |
-| `create_calendar_event` | write | Add an event |
-| `update_calendar_event` | write | Change an event |
+| `create_calendar_event` | write | Add an event. `profiles` assigns it to named family members. Local times are sent with the frame's UTC offset. |
+| `update_calendar_event` | write | Change an event, including who it is assigned to (`profiles`) |
 | `delete_calendar_event` | destructive | Delete an event. Local server only. |
 
 ### Chore Tools
@@ -352,7 +352,7 @@ Messages are the notes shown on the frame (Skylight's web app calls them "nudges
 
 | Tool | Effect | Description |
 |------|--------|-------------|
-| `get_family_members` | read | Family member profiles |
+| `get_family_members` | read | Family member profiles, with the IDs and names that `to` and `profiles` use |
 | `get_frame_info` | read | Household/frame information |
 | `get_devices` | read | Skylight devices |
 | `get_avatars` | read | Available profile avatars |
@@ -395,6 +395,24 @@ Needs Skylight Plus. Local server only.
 | Tool | Effect | Description |
 |------|--------|-------------|
 | `get_albums` | read | Photo albums |
+
+## Skylight API calls used
+
+All calls go to `https://app.ourskylight.com/api` (pinned in code). `{f}` is the frame ID. "Live" means run against a real frame by this project; everything else came from upstream and has not been re-run. Messages and meal edit/delete send `Skylight-Api-Version: 2026-10-15`, the version the web app sends; other calls use the client default.
+
+| Function | Calls |
+|----------|-------|
+| Calendar | `GET/POST /frames/{f}/calendar_events` (live), `PUT /calendar_events/{id}`, `DELETE /calendar_events/{id}` (live), `GET /frames/{f}/source_calendars` (live) |
+| Messages | `GET /frames/{f}/nudges?after&before`, `POST /nudges` (everyone or `category_ids`), `PATCH /nudges/{id}`, `DELETE /nudges/{id}` (all live) |
+| Meals | `GET /meals/categories`, `GET/POST /meals/sittings`, `PATCH/DELETE /meals/sittings/{id}/instances/{date}` (all live) |
+| Recipes | `GET/POST /meals/recipes`, `GET/PATCH/DELETE /meals/recipes/{id}`, `POST /meals/recipes/{id}/add_to_grocery_list` |
+| Profiles and family | `GET /frames/{f}/categories` (live), `GET /frames/{f}`, `GET /frames/{f}/devices`, `GET /api/avatars`, `GET /api/colors` |
+| Chores and tasks | `GET/POST /frames/{f}/chores`, `PUT/DELETE /chores/{id}`, `POST /frames/{f}/task_box/items` |
+| Lists | `GET/POST /lists`, `GET/PUT/DELETE /lists/{id}`, `POST /lists/{id}/list_items`, `PUT/DELETE /lists/{id}/list_items/{itemId}` |
+| Rewards | `GET/POST /rewards`, `PATCH/DELETE /rewards/{id}`, `POST /rewards/{id}/redeem`, `POST /rewards/{id}/unredeem`, `GET /reward_points` |
+| Photos | `GET /frames/{f}/albums` (local only) |
+
+The planning tools make no calls of their own; they combine the calendar, chore, meal and list calls above.
 
 ## Example Queries
 
