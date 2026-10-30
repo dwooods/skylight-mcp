@@ -17,6 +17,7 @@ import { registerChoreTools } from "./chores.js";
 import { registerFamilyTools } from "./family.js";
 import { registerListTools } from "./lists.js";
 import { registerMealTools } from "./meals.js";
+import { registerMessageTools } from "./messages.js";
 import { registerMiscTools } from "./misc.js";
 import { registerPhotoTools } from "./photos.js";
 import { registerPlanningTools } from "./planning.js";
@@ -84,6 +85,8 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   find_conflicts: "read",
   find_free_slots: "read",
   plan_week_meals: "write",
+  // messages (frame "nudges")
+  get_messages: "read",
 };
 
 export interface RegisterToolsOptions {
@@ -143,6 +146,7 @@ export function registerTools(server: McpServer, options: RegisterToolsOptions):
   registerTaskTools(filtered);
   registerFamilyTools(filtered);
   registerMiscTools(filtered);
+  registerMessageTools(filtered);
   // Planning tools degrade gracefully without Plus (meals are simply omitted),
   // except plan_week_meals, which needs the meals API.
   registerPlanningTools(filtered);
