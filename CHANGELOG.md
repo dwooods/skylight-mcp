@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `get_reward_points` now names points held by non-profile categories (for example a shared "Household" bucket) and labels ids it cannot match `unknown profile (id)` instead of `profile <id>`.
+
 ## [1.8.2] - 2026-10-31
 
 ### Changed

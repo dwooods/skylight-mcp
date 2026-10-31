@@ -11,7 +11,7 @@ import {
   redeemReward,
   unredeemReward,
 } from "../api/endpoints/rewards.js";
-import { resolveProfile, getFamilyMembers } from "../api/endpoints/categories.js";
+import { resolveProfile, getCategories } from "../api/endpoints/categories.js";
 import { formatErrorForMcp } from "../utils/errors.js";
 
 export function registerRewardTools(server: McpServer): void {
@@ -113,13 +113,14 @@ Use this to answer:
           };
         }
 
-        const members = await getFamilyMembers();
-        const nameOf = new Map(members.map((m) => [m.id, String(m.attributes.label ?? `profile ${m.id}`)]));
+        // All categories, not only profile-linked ones: points can belong to non-profile categories.
+        const categories = await getCategories();
+        const nameOf = new Map(categories.filter((c) => c.attributes.label).map((c) => [c.id, String(c.attributes.label)]));
         const pointsList = points
           .map((point) => {
             const attrs = attributesOf(point);
             const categoryId = attrs.category_id != null ? String(attrs.category_id) : null;
-            const who = categoryId ? (nameOf.get(categoryId) ?? `profile ${categoryId}`) : "Unknown profile";
+            const who = categoryId ? (nameOf.get(categoryId) ?? `unknown profile (${categoryId})`) : "unknown profile";
             const parts = [`- ${who}`];
             if (attrs.current_point_balance != null) parts.push(`  Current balance: ${attrs.current_point_balance}`);
             if (attrs.lifetime_points_earned != null) parts.push(`  Lifetime earned: ${attrs.lifetime_points_earned}`);
