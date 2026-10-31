@@ -402,13 +402,20 @@ Use this when:
 
 Parameters:
 - choreId (required): ID of the chore to delete (from get_chores)
+- confirm: must be true to delete; without it nothing is deleted and a preview is returned.
 
 Note: This permanently removes the chore. For recurring chores, this may only delete one instance.`,
     {
       choreId: z.string().describe("ID of the chore to delete"),
+      confirm: z.boolean().optional().default(false).describe("Must be true to delete; otherwise only a preview is returned"),
     },
-    async ({ choreId }) => {
+    async ({ choreId, confirm }) => {
       try {
+        if (!confirm) {
+          return {
+            content: [{ type: "text" as const, text: `Preview only, nothing deleted. Would permanently delete chore ${choreId}. Call again with confirm: true after the user says yes.` }],
+          };
+        }
         await deleteChore(choreId);
         return {
           content: [

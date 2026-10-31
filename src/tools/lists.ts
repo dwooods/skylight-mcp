@@ -377,19 +377,27 @@ Use this when:
 Parameters:
 - listId: ID of the list to delete (use get_lists to find IDs)
 - listName: Name of the list to delete (alternative to listId)
+- confirm: must be true to delete; without it nothing is deleted and a preview is returned.
 
 Note: This permanently deletes the list and all its items.`,
     {
       listId: z.string().optional().describe("ID of the list to delete"),
       listName: z.string().optional().describe("Name of the list to delete (alternative to listId)"),
+      confirm: z.boolean().optional().default(false).describe("Must be true to delete; otherwise only a preview is returned"),
     },
-    async ({ listId, listName }) => {
+    async ({ listId, listName, confirm }) => {
       try {
         const resolved = await resolveListId(listId, listName);
         if (!resolved.success) {
           return {
             content: [{ type: "text" as const, text: resolved.error }],
             isError: true,
+          };
+        }
+
+        if (!confirm) {
+          return {
+            content: [{ type: "text" as const, text: `Preview only, nothing deleted. Would permanently delete list ${resolved.id} and all its items. Call again with confirm: true after the user says yes.` }],
           };
         }
 
@@ -530,14 +538,21 @@ Use this when:
 Parameters:
 - itemId (required): ID of the item to delete
 - listId (required): ID of the list containing the item
+- confirm: must be true to delete; without it nothing is deleted and a preview is returned.
 
 Note: This permanently removes the item. Use update_list_item with status="completed" to check it off instead.`,
     {
       itemId: z.string().describe("ID of the item to delete"),
       listId: z.string().describe("ID of the list containing the item"),
+      confirm: z.boolean().optional().default(false).describe("Must be true to delete; otherwise only a preview is returned"),
     },
-    async ({ itemId, listId }) => {
+    async ({ itemId, listId, confirm }) => {
       try {
+        if (!confirm) {
+          return {
+            content: [{ type: "text" as const, text: `Preview only, nothing deleted. Would permanently delete item ${itemId} from list ${listId}. Call again with confirm: true after the user says yes.` }],
+          };
+        }
         await deleteListItem(listId, itemId);
         return {
           content: [

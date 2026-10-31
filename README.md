@@ -41,7 +41,7 @@ exposes every tool. The *hosted* server (a Cloudflare Worker) is optional. You
 only need it if Claude Duet or Claude on another device has to reach Skylight
 when this computer is off. It means cloning the repo, a free Cloudflare
 account, `npx wrangler login`, `npm run worker:setup`, and a second sign-in,
-and it exposes only read and write tools plus `delete_message`. Do the local
+and it exposes read and write tools plus a short list of deletes (chores, lists, list items, rewards, recipes, meal sittings, messages; not calendar events). Do the local
 setup first; see
 [Hosted server (Claude Duet, Claude on other devices)](#hosted-server-claude-duet-claude-on-other-devices)
 if you need it later.
@@ -273,31 +273,29 @@ encrypted in the OAuth grant, not in a database you manage.
 
 ### Which tools the hosted server exposes, and why
 
-By default the hosted server registers **read and create/update tools only**:
-no `delete_*` tools and no photo uploads. The local (stdio) server registers
-everything. This is a deliberate choice, not a limitation of the Worker:
+The hosted server registers all **read and create/update tools**, plus these
+deletes: `delete_chore`, `delete_list`, `delete_list_item`, `delete_reward`,
+`delete_recipe`, `delete_meal_sitting` and `delete_message`. It does **not**
+register `delete_calendar_event` or photo uploads. The local (stdio) server
+registers everything. This is a deliberate choice, not a limitation of the Worker:
 
 - The hosted server is what Claude Duet drives proactively, sometimes
-  unattended. A misread instruction that *creates* a wrong chore is a
-  nuisance; one that *deletes* a calendar event is data loss with no undo
-  from Claude. Leaving deletes off the hosted path caps the worst outcome at
-  "something extra to clean up".
+  unattended. Every allowlisted delete previews and deletes nothing unless
+  `confirm: true`, so the model has to show the exact target and get a yes
+  first. Calendar events stay local-only because a wrong delete there is the
+  costliest to miss.
 - Photo tools are uploads the Worker has no reason to carry.
 
-If you want full parity on the hosted server, change one line in
-`src/worker/mcp.ts` and redeploy:
-
-```ts
-export const HOSTED_EFFECTS: readonly ToolEffect[] = ["read", "write", "destructive"];
-```
-
-and set `photos: true` in the same file if you also want photo uploads.
-Every tool's classification lives in `src/tools/registry.ts`, so you can also
-carve out a profile of your own (read-only, for example, is `["read"]`).
+The allowlist is one list, `HOSTED_DESTRUCTIVE_ALLOWLIST` in
+`src/worker/mcp.ts`. Add or remove a tool name there and redeploy. For full
+parity set `HOSTED_EFFECTS` to `["read", "write", "destructive"]` and
+`photos: true` in the same file. Every tool's classification lives in
+`src/tools/registry.ts`, so you can also carve out a profile of your own
+(read-only, for example, is `["read"]`).
 
 If you run both servers in the Claude desktop app, Claude sees two sets of
 mostly duplicate tools and may use either for writes. Disable the local one
-in Settings → Connectors when you do not need the delete or photo tools, or
+in Settings → Connectors when you do not need calendar deletes or photo tools, or
 say "use the local Skylight server" when you do.
 
 ### Deploy (once)
@@ -369,25 +367,26 @@ last captured are recorded in the repository's build log.
 
 | Area | What works | Hosted server (Claude Duet) | Status |
 |------|------------|------------------------------|--------|
-| Calendar | Read events and source calendars; create (with profiles), update, delete events | Everything except delete | Read, create and delete live-tested; update inherited |
+| Calendar | Read events and source calendars; create (with profiles), update, delete events | Everything except delete (local only) | Read, create and delete live-tested; update inherited |
 | Planning | Week overview, conflicts, free slots, bulk meal plan | All four | Week overview live-tested; the rest mocked only |
-| Meals (Plus) | Read categories and meals; create, rename, move, delete one-off meals | Everything except delete | Live-tested |
-| Recipes (Plus) | Read, create, update, delete recipes; push ingredients to the grocery list | Everything except delete | Inherited |
+| Meals (Plus) | Read categories and meals; create, rename, move, delete one-off meals | All, delete included | Live-tested |
+| Recipes (Plus) | Read, create, update, delete recipes; push ingredients to the grocery list | All, delete included | Inherited |
 | Messages | Read; post to everyone or to named profiles (silent by default); edit text and sender (everyone-messages only); delete | All four, delete included | Live-tested |
-| Chores | Read, create, update, delete | Everything except delete | Read live-tested; writes inherited |
-| Task box | Add a task | Yes | Inherited |
-| Lists | Read lists and items; create, update, delete lists and items | Everything except delete | Inherited |
+| Chores and routines | Read (routines marked, Up for Grabs included); create, update, delete chores; mark one occurrence of a routine or recurring chore done or not done | All, delete included | Read live-tested; completion captured live, tool not yet run live; the rest inherited |
+| Task box | List items; add a task | Yes | List live-tested; add inherited |
+| Lists | Read lists and items; create, update, delete lists and items | All, delete included | Inherited |
 | Family and devices | Profiles with IDs, avatars, colours, household info, devices | Yes | Profiles live-tested; the rest inherited |
-| Rewards (Plus) | Read points and rewards; create, update, redeem, unredeem, delete | Everything except delete | Inherited |
+| Rewards (Plus) | Read points (by profile) and rewards; create, update, redeem, unredeem, delete | All, delete included | Inherited; points read live-tested |
 | Photos (Plus) | List albums | No | Inherited |
 
 ### Not supported
 
 Nothing here is hidden behind a flag. It is either unavailable from Skylight or not yet captured.
 
-- **Messages**: deleting one (Skylight offers no way), sending to specific profiles or devices, scheduling, repeating, voice notes, and read-aloud (the option exists on `send_message` but was not tested live).
+- **Messages**: sending to specific devices, scheduling, repeating, voice notes, and read-aloud (the option exists on `send_message` but was not tested live). Deleting works but the app has no delete button.
 - **Meals**: editing or deleting a repeating meal (it is refused, because the behaviour of changing one occurrence of a series was not captured), saving a meal to the recipe box from the edit form, and Skylight's own "Plan Meals" feature.
-- **Task box**: listing, editing or completing tasks. It is create-only.
+- **Task box**: editing or completing tasks, and saving a routine template to it.
+- **Chores**: completing a one-off (non-recurring) chore, Skip, editing a routine or recurring chore (the app's edit call is not captured, so `update_chore` may not behave on a series), and deleting a recurring chore with a scope. The app asks "this and future" or "all in series" on delete; `delete_chore` has no scope option and its behaviour on a recurring chore is unverified, so treat it as one-off only. Un-completing a routine cannot reduce its `longest_streak`.
 - **Profiles**: creating or editing them. Read-only.
 - **Settings, account, notifications, sleep schedule, device navigation**: none of these are exposed.
 - **Photos**: uploads and anything beyond listing albums.
@@ -530,7 +529,8 @@ All calls go to `https://app.ourskylight.com/api` (pinned in code). `{f}` is the
 | Meals | `GET /meals/categories`, `GET/POST /meals/sittings`, `PATCH/DELETE /meals/sittings/{id}/instances/{date}` (all live) |
 | Recipes | `GET/POST /meals/recipes`, `GET/PATCH/DELETE /meals/recipes/{id}`, `POST /meals/recipes/{id}/add_to_grocery_list` |
 | Profiles and family | `GET /frames/{f}/categories` (live), `GET /frames/{f}`, `GET /frames/{f}/devices`, `GET /api/avatars`, `GET /api/colors` |
-| Chores and tasks | `GET/POST /frames/{f}/chores`, `PUT/DELETE /chores/{id}`, `POST /frames/{f}/task_box/items` |
+| Chores and routines | `GET /frames/{f}/chores` (live; `include_up_for_grabs`), `POST /chores`, `PUT/DELETE /chores/{id}`, `PUT /chores/{series id}/completions` (body `status` `complete`/`pending`, `instance_date`, `instance_time`; captured live, the tool is untested live), `POST /chores/create_multiple` (captured, no tool yet) |
+| Task box | `GET /frames/{f}/task_box/items` (live), `POST /frames/{f}/task_box/items` |
 | Lists | `GET/POST /lists`, `GET/PUT/DELETE /lists/{id}`, `POST /lists/{id}/list_items`, `PUT/DELETE /lists/{id}/list_items/{itemId}` |
 | Rewards | `GET/POST /rewards`, `PATCH/DELETE /rewards/{id}`, `POST /rewards/{id}/redeem`, `POST /rewards/{id}/unredeem`, `GET /reward_points` |
 | Photos | `GET /frames/{f}/albums` (local only) |

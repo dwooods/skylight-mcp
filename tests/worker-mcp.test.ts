@@ -31,8 +31,11 @@ describe("hosted MCP handler", () => {
     const names = json.result.tools.map((t) => t.name);
     expect(names).toContain("get_calendar_events");
     expect(names).toContain("create_calendar_event");
-    // Every delete tool except the deliberately allowlisted one stays off the hosted server.
-    expect(names.filter((n) => n.startsWith("delete_"))).toEqual(["delete_message"]);
+    // Only the deliberately allowlisted deletes are on the hosted server; events stay local-only.
+    expect(names.filter((n) => n.startsWith("delete_")).sort()).toEqual(
+      ["delete_chore", "delete_list", "delete_list_item", "delete_meal_sitting", "delete_message", "delete_recipe", "delete_reward"]
+    );
+    expect(names).not.toContain("delete_calendar_event");
     expect(names).not.toContain("get_albums");
     const get = json.result.tools.find((t) => t.name === "get_calendar_events")!;
     expect(get.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });

@@ -224,13 +224,20 @@ Returns: The updated recipe.`,
 
 Parameters:
 - recipeId (required): ID of the recipe to delete
+- confirm: must be true to delete; without it nothing is deleted and a preview is returned.
 
 Note: This permanently removes the recipe.`,
     {
       recipeId: z.string().describe("ID of the recipe to delete"),
+      confirm: z.boolean().optional().default(false).describe("Must be true to delete; otherwise only a preview is returned"),
     },
-    async ({ recipeId }) => {
+    async ({ recipeId, confirm }) => {
       try {
+        if (!confirm) {
+          return {
+            content: [{ type: "text" as const, text: `Preview only, nothing deleted. Would permanently delete recipe ${recipeId}. Call again with confirm: true after the user says yes.` }],
+          };
+        }
         await deleteRecipe(recipeId);
         return {
           content: [{ type: "text" as const, text: `Deleted recipe (ID: ${recipeId})` }],
