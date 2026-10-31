@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.8.1] - 2026-10-31
+
+### Fixed
+
+- The client's request log (stderr, including during `doctor` and in MCP client logs) printed the full
+  URL, so your frame ID appeared in terminals and pasted bug reports, contradicting the README's
+  "never prints your frame ID". Logged URLs now show `/frames/<frame>`; the real request is unchanged.
+  A test fails if the ID appears in any log line.
 
 ### Changed
 
