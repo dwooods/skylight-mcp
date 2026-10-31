@@ -45,10 +45,10 @@ function stub(): Seen[] {
         );
       }
       if (u.includes("/reward_points")) {
-        return new Response(JSON.stringify([{ category_id: 1, lifetime_points_earned: 12, current_point_balance: 7 }]), { status: 200 });
+        return new Response(JSON.stringify([{ category_id: 1, lifetime_points_earned: 12, current_point_balance: 7 }, { category_id: 2, lifetime_points_earned: 0, current_point_balance: 0 }, { category_id: 99, lifetime_points_earned: 3, current_point_balance: 1 }]), { status: 200 });
       }
       if (u.includes("/categories")) {
-        return new Response(JSON.stringify({ data: [{ id: "1", type: "category", attributes: { label: "Jordan", linked_to_profile: true } }] }), { status: 200 });
+        return new Response(JSON.stringify({ data: [{ id: "1", type: "category", attributes: { label: "Jordan", linked_to_profile: true } }, { id: "2", type: "category", attributes: { label: "Household", linked_to_profile: false } }] }), { status: 200 });
       }
       return new Response(JSON.stringify({ data: [] }), { status: 200 });
     })
@@ -129,6 +129,8 @@ describe("get_reward_points", () => {
     expect(r.text).toContain("Jordan");
     expect(r.text).toContain("Current balance: 7");
     expect(r.text).toContain("Lifetime earned: 12");
+    expect(r.text).toContain("Household");
+    expect(r.text).toContain("unknown profile (99)");
     expect(r.text).not.toContain("undefined");
   });
 });
