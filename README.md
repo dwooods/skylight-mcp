@@ -34,7 +34,32 @@ what the hosted server leaves out.
 You need Node 20+, a Skylight account, and an MCP client (Claude desktop, Claude
 Code, or any other). Nothing to clone or build.
 
-### 1. Sign in (once)
+### 1. Find your frame ID and timezone
+
+Sign in to the Skylight web app at https://ourskylight.com. Your frame ID is the
+number in the address bar, `https://ourskylight.com/my-skylight/<number>` (see
+[Finding your Frame ID](#finding-your-frame-id)). Your timezone is an IANA name
+such as `America/Chicago`. **Set it**: it defaults to `America/New_York`, and
+event times and date windows come out wrong anywhere else.
+
+### 2. Set them in your terminal
+
+These last only for the terminal window you set them in. Your MCP client does
+not inherit them; step 5 puts them in its config.
+
+macOS / Linux:
+```bash
+export SKYLIGHT_FRAME_ID=your_frame_id
+export SKYLIGHT_TIMEZONE=America/New_York
+```
+
+Windows PowerShell:
+```powershell
+$env:SKYLIGHT_FRAME_ID="your_frame_id"
+$env:SKYLIGHT_TIMEZONE="America/New_York"
+```
+
+### 3. Sign in (once)
 
 ```bash
 npx -y @davidwoods/skylight-mcp auth login
@@ -55,15 +80,18 @@ OAuth tokens are stored, encrypted with a key in the macOS Keychain (plain
 `0600` file on Linux/Windows). macOS may ask once to allow Keychain access.
 `auth status` and `auth logout` do what they say.
 
-### 2. Find your frame ID and timezone
+### 4. Check it
 
-Your frame ID is the number in `https://ourskylight.com/my-skylight/<number>`
-after you sign in to the Skylight web app (see
-[Finding your Frame ID](#finding-your-frame-id)). Your timezone is an IANA name
-such as `America/Chicago`. **Set it**: it defaults to `America/New_York`, and
-event times and date windows come out wrong anywhere else.
+```bash
+npx -y @davidwoods/skylight-mcp doctor
+```
 
-### 3. Add to your MCP client
+`doctor` checks Node, the frame ID, the timezone, your sign-in and one real call
+to Skylight, and says what to fix. It never prints tokens or your frame ID.
+Add `--offline` to skip the network call. Do this before step 5: a client that
+fails to start gives you much less to go on than `doctor` does.
+
+### 5. Add to your MCP client
 
 **Claude desktop** (Settings → Developer → Edit Config), or any client that uses `mcp.json`:
 ```json
@@ -90,17 +118,6 @@ claude mcp add skylight \
 
 Restart the client fully (Cmd-Q on Mac), then ask it "what's on the family
 calendar this week?"
-
-### 4. Check it
-
-```bash
-SKYLIGHT_FRAME_ID=your_frame_id SKYLIGHT_TIMEZONE=America/New_York \
-  npx -y @davidwoods/skylight-mcp doctor
-```
-
-`doctor` checks Node, the frame ID, the timezone, your sign-in and one real call
-to Skylight, and says what to fix. It never prints tokens or your frame ID.
-Add `--offline` to skip the network call.
 
 ### From source (contributors)
 
