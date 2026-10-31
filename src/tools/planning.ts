@@ -106,7 +106,7 @@ Parameters:
 
         const [events, choresResult, meals, lists] = await Promise.all([
           getCalendarEvents({ dateMin: start, dateMax: end, timezone: tz }),
-          getChores({ after: start, before: end, includeLate: true }),
+          getChores({ after: start, before: end, includeLate: true, includeUpForGrabs: true }),
           loadMeals(start, end),
           includeLists === false ? Promise.resolve(null) : getLists().catch(() => null),
         ]);
@@ -118,7 +118,8 @@ Parameters:
         const late: string[] = [];
         for (const chore of choresResult.chores) {
           const a = chore.attributes;
-          const who = assignee.get(chore.relationships?.category?.data?.id ?? "");
+          const catId = chore.relationships?.category?.data?.id;
+          const who = catId ? assignee.get(catId) : "up for grabs";
           const line = `${a.status === "completed" ? "[x]" : "[ ]"} ${a.summary}${who ? ` (${who})` : ""}${a.start_time ? ` at ${a.start_time}` : ""}${a.reward_points ? `, ${a.reward_points} pts` : ""} [chore ID: ${chore.id}]`;
           if (a.start < start && a.status !== "completed") late.push(`${line}, due ${formatDay(a.start)}`);
           else choresByDay.get(a.start)?.push(line);

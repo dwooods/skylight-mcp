@@ -12,6 +12,8 @@ export interface GetChoresOptions {
   after?: string;
   before?: string;
   includeLate?: boolean;
+  /** Shared "Up for Grabs" chores. The web app always asks for them; without this they are never returned. */
+  includeUpForGrabs?: boolean;
   filterLinkedToProfile?: boolean;
 }
 
@@ -29,6 +31,7 @@ export async function getChores(options: GetChoresOptions = {}): Promise<GetChor
     after: options.after,
     before: options.before,
     include_late: options.includeLate,
+    include_up_for_grabs: options.includeUpForGrabs,
   };
 
   if (options.filterLinkedToProfile) {
