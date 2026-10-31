@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `get_task_box` (read-only, available on the hosted server): lists the task box. Items are
+  reusable chore and routine templates with no assignee or date, so a task saved there does
+  not appear in `get_chores`. Shape captured from the web app; an unrecognised response is
+  an error (top-level keys only), never "empty".
 - `get_calendar_events` prints a `profiles:` line naming who an event is assigned to.
   The response field it reads (`relationships.categories`, or `category_ids`) is inferred
   from chores and messages and has not been confirmed on a real event.

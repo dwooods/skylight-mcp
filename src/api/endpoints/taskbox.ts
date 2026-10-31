@@ -1,6 +1,7 @@
 import { getClient } from "../client.js";
 import type {
   TaskBoxItemResponse,
+  TaskBoxItemsResponse,
   TaskBoxItemResource,
   CreateTaskBoxItemRequest,
 } from "../types.js";
@@ -38,5 +39,23 @@ export async function createTaskBoxItem(
     request
   );
 
+  return response.data;
+}
+
+/**
+ * List the task box.
+ *
+ * Shape captured from the web app: GET /task_box/items returns template items
+ * (summary, emoji_icon, routine, reward_points). They carry no assignee and no
+ * date: the task box is a library of reusable chores, not scheduled work.
+ */
+export async function listTaskBoxItems(): Promise<TaskBoxItemResource[]> {
+  const client = getClient();
+  const response = await client.get<TaskBoxItemsResponse>("/api/frames/{frameId}/task_box/items");
+  if (!Array.isArray(response.data)) {
+    // Never report "empty" for a shape we don't recognise. Keys only: values could be personal.
+    const keys = response && typeof response === "object" ? Object.keys(response).join(", ") : typeof response;
+    throw new Error(`Unexpected task box response (top-level keys: ${keys || "none"})`);
+  }
   return response.data;
 }
