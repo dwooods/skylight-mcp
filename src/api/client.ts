@@ -28,6 +28,14 @@ export interface RequestOptions {
  * Skylight API Client
  * Handles authentication and HTTP requests to the Skylight API
  */
+/**
+ * The frame ID identifies the household, and these log lines end up in terminals, support
+ * requests and pasted bug reports. Show the shape of the request, not the ID.
+ */
+export function redactForLog(url: string): string {
+  return url.replace(/\/frames\/[^/?#]+/g, "/frames/<frame>");
+}
+
 export class SkylightClient {
   private config: Config;
   private resolvedToken: string | null = null;
@@ -216,7 +224,7 @@ export class SkylightClient {
     if (status === 401) {
       // Clear cached credentials on auth failure
       this.resolvedToken = null;
-      console.error(`[client] 401 Unauthorized for ${url}`);
+      console.error(`[client] 401 Unauthorized for ${redactForLog(url)}`);
 
       if (!this.config.token) {
         throw new AuthenticationError(
@@ -261,7 +269,7 @@ export class SkylightClient {
     const resolvedEndpoint = endpoint.replace("{frameId}", this.config.frameId);
     const url = this.buildUrl(resolvedEndpoint, params);
 
-    console.error(`[client] ${method} ${url}`);
+    console.error(`[client] ${method} ${redactForLog(url)}`);
 
     const headers: Record<string, string> = {
       Authorization: await this.getAuthHeader(),
