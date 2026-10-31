@@ -135,6 +135,18 @@ Windows is untested as of this writing; treat these as expected, not confirmed.
 | Tools missing after an update | Fully quit and reopen the client; it caches the tool list. For a hosted connector use its "Refresh tools list". |
 | Worked yesterday, fails today | Skylight has no public API and may have changed. Run `doctor`, then check the issues. |
 
+### First five things to ask Claude
+
+Once `doctor` is clean, try these in order. The first three only read. The last two show how the write guards work, so you see them before anything lands on your Skylight display.
+
+1. **"What's on our family calendar this week?"** Reads events (`get_calendar_events`). If times are off by hours, your `SKYLIGHT_TIMEZONE` is wrong.
+2. **"Give me an overview of the week and point out any conflicts."** One call that merges events, chores, meals and lists (`get_week_overview`, `find_conflicts`).
+3. **"When are we all free for 90 minutes on Saturday?"** Finds gaps around the fixed events (`find_free_slots`).
+4. **"Plan dinners for Monday to Thursday, but do a dry run first."** Shows what would be written and which slots are already filled (`plan_week_meals`). Nothing is written until you say so, and filled slots are never overwritten. Needs Skylight Plus.
+5. **"Draft a message to everyone saying dinner is at 6, but don't send it yet."** The send tool previews the exact text and posts nothing until Claude is told to confirm. Messages show on your display, so say yes only when you mean it.
+
+If a tool you expected is missing, see the [Troubleshooting](#troubleshooting) table, and check "What is supported" for tools that are local-only or Plus-only.
+
 ### Instructions for AI
 
 Copy this into your AI's custom instructions or system prompt:
@@ -554,7 +566,7 @@ Contributions are welcome! Here's how you can help:
 ### Development Setup
 
 ```bash
-git clone https://github.com/TheEagleByte/skylight-mcp.git
+git clone https://github.com/dwooods/skylight-mcp.git
 cd skylight-mcp
 npm install
 npm run dev  # Start with hot reload
@@ -569,11 +581,10 @@ npm run dev  # Start with hot reload
 
 ## Issues & Support
 
-- **Bug reports**: [Open an issue](https://github.com/TheEagleByte/skylight-mcp/issues/new) with steps to reproduce
-- **Feature requests**: [Open an issue](https://github.com/TheEagleByte/skylight-mcp/issues/new) describing the use case
-- **Questions**: [Start a discussion](https://github.com/TheEagleByte/skylight-mcp/discussions) or open an issue
+See [SUPPORT.md](SUPPORT.md) for what to run first and what must never be pasted into an issue.
 
-Please include relevant details like your Node.js version, error messages, and configuration (with sensitive values redacted).
+- **Bug reports and feature requests**: [open an issue](https://github.com/dwooods/skylight-mcp/issues/new/choose) and pick a template.
+- **Security problems**: use private vulnerability reporting, not a public issue (see SUPPORT.md).
 
 ## License
 

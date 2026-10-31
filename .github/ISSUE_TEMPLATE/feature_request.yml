@@ -1,0 +1,40 @@
+name: Something Skylight can do that this can't
+description: A screen or action in the Skylight web app with no tool here.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the "What is supported" and "Not supported" lists in the README first.
+
+        New tools are built from what the Skylight web app itself sends, so the most useful report names the screen. I may ask you for a redacted capture later. **Do not post captures, headers or tokens in the issue.** Describe what you did and what you saw instead.
+  - type: textarea
+    id: want
+    attributes:
+      label: What do you want Claude to be able to do?
+      description: Give the real-life request, for example "show what is in the Task Box for Friday".
+    validations:
+      required: true
+  - type: input
+    id: screen
+    attributes:
+      label: Where is it in the Skylight web app?
+      description: Screen and menu path, for example "Tasks > Task Box".
+    validations:
+      required: true
+  - type: dropdown
+    id: effect
+    attributes:
+      label: Would it read, add or change things?
+      options:
+        - Read only
+        - Add things
+        - Change or delete things
+    validations:
+      required: true
+  - type: checkboxes
+    id: plus
+    attributes:
+      label: Subscription
+      options:
+        - label: This needs Skylight Plus.
