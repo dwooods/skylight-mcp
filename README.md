@@ -447,7 +447,8 @@ Messages are the notes shown on the frame (Skylight's web app calls them "nudges
 |------|--------|-------------|
 | `get_chores` | read | Chores with optional filters (date, assignee, status) |
 | `create_chore` | write | Create a chore, optionally recurring |
-| `update_chore` | write | Rename, reschedule, reassign, complete or reopen a chore |
+| `update_chore` | write | Rename, reschedule, reassign a chore. Completion goes through `complete_chore`. |
+| `complete_chore` | write | Mark one occurrence of a routine or recurring chore done, or undo it. Previews unless `confirm: true`; awards real stars and streaks on the family display. Recurring chores only. |
 | `delete_chore` | destructive | Delete a chore. Local server only. |
 
 ### Task Tools
