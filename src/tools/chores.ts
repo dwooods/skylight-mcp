@@ -404,13 +404,26 @@ Parameters:
 - choreId (required): ID of the chore to delete (from get_chores)
 - confirm: must be true to delete; without it nothing is deleted and a preview is returned.
 
-Note: This permanently removes the chore. For recurring chores, this may only delete one instance.`,
+Note: This permanently removes the chore. Occurrences of recurring chores and routines (ids like 12345-2026-11-03-0600) are refused; delete those in the Skylight app.`,
     {
       choreId: z.string().describe("ID of the chore to delete"),
       confirm: z.boolean().optional().default(false).describe("Must be true to delete; otherwise only a preview is returned"),
     },
     async ({ choreId, confirm }) => {
       try {
+        // The app asks "this and future" vs "all in series" when deleting a recurring chore;
+        // what DELETE /chores/{id} does to a series is not captured, so refuse rather than guess.
+        if (parseOccurrenceId(choreId) !== null) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `"${choreId}" is an occurrence of a recurring chore or routine. Deleting those is not supported yet, because Skylight asks whether to delete "this and future" or "all in series" and that call has not been captured. Delete it in the Skylight app. Nothing was changed.`,
+              },
+            ],
+            isError: true,
+          };
+        }
         if (!confirm) {
           return {
             content: [{ type: "text" as const, text: `Preview only, nothing deleted. Would permanently delete chore ${choreId}. Call again with confirm: true after the user says yes.` }],

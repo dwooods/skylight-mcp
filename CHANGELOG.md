@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `delete_chore` refuses occurrence ids of recurring chores and routines (like `12345-2026-11-03-0600`) and points to the app, because the delete scope ("this and future" vs "all in series") is not captured. One-off chores are unaffected.
+
 ### Fixed
 - `get_reward_points` now names points held by non-profile categories (for example a shared "Household" bucket) and labels ids it cannot match `unknown profile (id)` instead of `profile <id>`.
 
