@@ -182,6 +182,7 @@ export interface RewardPointResource {
 }
 
 // API Response types
+export type TaskBoxItemsResponse = JsonApiResponse<TaskBoxItemResource[]>;
 export type ChoresResponse = JsonApiResponse<ChoreResource[], CategoryResource>;
 export type ChoreResponse = JsonApiResponse<ChoreResource, CategoryResource>;
 export type ListsResponse = JsonApiResponse<ListResource[]>;

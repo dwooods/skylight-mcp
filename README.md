@@ -415,7 +415,8 @@ Messages are the notes shown on the frame (Skylight's web app calls them "nudges
 
 | Tool | Effect | Description |
 |------|--------|-------------|
-| `create_task` | write | Add a task to the task box (create-only; there is no list tool) |
+| `get_task_box` | read | List the task box: reusable chore and routine templates (no assignee or date) |
+| `create_task` | write | Add a template to the task box |
 
 ### List Tools
 

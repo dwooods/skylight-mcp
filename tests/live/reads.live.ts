@@ -15,6 +15,7 @@ const READS = [
   "get_source_calendars",
   "get_calendar_events",
   "get_chores",
+  "get_task_box",
   "get_lists",
   "get_meal_categories",
   "get_meal_sittings",

@@ -53,6 +53,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   delete_list: "destructive",
   delete_list_item: "destructive",
   // tasks
+  get_task_box: "read",
   create_task: "write",
   // family / misc
   get_family_members: "read",

@@ -62,4 +62,17 @@ liveSuite("response shapes our tools rely on", { tags: ["read", "contract"] }, (
     expect(result.isError).toBe(false);
     expect(result.text).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.-]+/);
   });
+
+  it("task box items carry summary, routine, emoji_icon and reward_points", async () => {
+    const response = await ctx.client().request<{ data?: Sitting[] }>("/api/frames/{frameId}/task_box/items", { method: "GET" });
+    const items = response.data ?? [];
+    if (items.length === 0) return ctx.note("task box is empty; shape not checked");
+    for (const item of items) {
+      expect(item.type, "type").toBe("task_box_item");
+      expect(typeof item.attributes?.summary, "attributes.summary").toBe("string");
+      expect("routine" in (item.attributes ?? {}), "attributes.routine present").toBe(true);
+      expect("emoji_icon" in (item.attributes ?? {}), "attributes.emoji_icon present").toBe(true);
+      expect("reward_points" in (item.attributes ?? {}), "attributes.reward_points present").toBe(true);
+    }
+  });
 });
