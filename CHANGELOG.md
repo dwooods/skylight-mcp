@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Behavior change:** profile names are now matched exactly (case-insensitive) everywhere:
+  `create_chore`, `update_chore`, `get_chores` (assignee filter), `create_reward`,
+  `redeem_reward`, and `from` on `send_message` / `update_message`. Previously a partial
+  name such as "Alex" could resolve to "Alexander" and put the chore or message under the
+  wrong person. An unknown or partial name now fails before any write and lists the valid
+  profile names.
 - `get_calendar_events` no longer prints `owner_email`, `calendar_id`,
   `calendar_account_id`, `invited_emails`, `uid` or `supports_notification_settings`.
   They identified accounts and people and gave a model nothing to act on. Other

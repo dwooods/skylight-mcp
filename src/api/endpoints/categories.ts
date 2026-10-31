@@ -26,20 +26,6 @@ export function clearCategoriesCache(): void {
 }
 
 /**
- * Find a category by name (case-insensitive partial match)
- * Categories represent family members like "Casey", "Mom", "Kids", etc.
- */
-export async function findCategoryByName(name: string): Promise<CategoryResource | undefined> {
-  const categories = await getCategories();
-  const lowerName = name.toLowerCase();
-
-  return categories.find((cat) => {
-    const label = cat.attributes.label?.toLowerCase();
-    return label && (label === lowerName || label.includes(lowerName));
-  });
-}
-
-/**
  * Get categories that are linked to profiles (actual family members)
  */
 export async function getFamilyMembers(): Promise<CategoryResource[]> {
@@ -57,7 +43,7 @@ export async function getChoreChartCategories(): Promise<CategoryResource[]> {
 
 /**
  * Turn profile names into category IDs. Exact match, case-insensitive, no partial
- * matching: findCategoryByName would treat "Alex" as a match for any longer name.
+ * matching, so "Alex" never resolves to "Alexander".
  * Unknown names fail with the valid list so nothing is ever sent to a guess.
  */
 export async function resolveProfileIds(names: string[]): Promise<{ ids: string[]; labels: string[] }> {
@@ -84,4 +70,10 @@ export async function resolveProfileIds(names: string[]): Promise<{ ids: string[
     }
   }
   return { ids, labels };
+}
+
+/** One profile by exact name (case-insensitive); throws with the valid names when unknown or ambiguous. */
+export async function resolveProfile(name: string): Promise<{ id: string; label: string }> {
+  const { ids, labels } = await resolveProfileIds([name]);
+  return { id: ids[0]!, label: labels[0]! };
 }

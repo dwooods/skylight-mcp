@@ -11,7 +11,7 @@ import {
   redeemReward,
   unredeemReward,
 } from "../api/endpoints/rewards.js";
-import { findCategoryByName } from "../api/endpoints/categories.js";
+import { resolveProfile } from "../api/endpoints/categories.js";
 import { formatErrorForMcp } from "../utils/errors.js";
 
 export function registerRewardTools(server: McpServer): void {
@@ -179,16 +179,7 @@ Returns: The created reward details.`,
     async ({ name, pointValue, description, emojiIcon, assignee, respawnOnRedemption }) => {
       try {
         let categoryIds: string[] | undefined;
-        if (assignee) {
-          const category = await findCategoryByName(assignee);
-          if (!category) {
-            return {
-              content: [{ type: "text" as const, text: `Could not find family member "${assignee}"` }],
-              isError: true,
-            };
-          }
-          categoryIds = [category.id];
-        }
+        if (assignee) categoryIds = [(await resolveProfile(assignee)).id];
 
         const reward = await createReward({
           name,
@@ -326,16 +317,7 @@ Returns: The redeemed reward details.`,
     async ({ rewardId, assignee }) => {
       try {
         let categoryId: string | undefined;
-        if (assignee) {
-          const category = await findCategoryByName(assignee);
-          if (!category) {
-            return {
-              content: [{ type: "text" as const, text: `Could not find family member "${assignee}"` }],
-              isError: true,
-            };
-          }
-          categoryId = category.id;
-        }
+        if (assignee) categoryId = (await resolveProfile(assignee)).id;
 
         const reward = await redeemReward(rewardId, categoryId);
 

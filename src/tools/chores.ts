@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { getChores, createChore, updateChore, deleteChore } from "../api/endpoints/chores.js";
-import { findCategoryByName } from "../api/endpoints/categories.js";
+import { resolveProfile } from "../api/endpoints/categories.js";
 import { getTodayDate, getDateOffset, parseDate, parseTime, formatDateForDisplay } from "../utils/dates.js";
 import { formatErrorForMcp } from "../utils/errors.js";
 import { getConfig } from "../config.js";
@@ -67,15 +67,10 @@ Returns chores with their assignees, due dates, and completion status.`,
         // Build category lookup for assignee names
         const categoryMap = new Map(result.categories.map((c) => [c.id, c.attributes.label ?? "Unknown"]));
 
-        // Filter by assignee if specified
+        // Filter by assignee if specified: exact profile name, so "Ben" never matches "Benjamin"
         if (assignee) {
-          const lowerAssignee = assignee.toLowerCase();
-          chores = chores.filter((chore) => {
-            const categoryId = chore.relationships?.category?.data?.id;
-            if (!categoryId) return false;
-            const categoryName = categoryMap.get(categoryId)?.toLowerCase();
-            return categoryName && categoryName.includes(lowerAssignee);
-          });
+          const wanted = (await resolveProfile(assignee)).id;
+          chores = chores.filter((chore) => chore.relationships?.category?.data?.id === wanted);
         }
 
         if (chores.length === 0) {
@@ -188,22 +183,7 @@ The chore will appear on the Skylight display.`,
 
         // Resolve assignee to category ID
         let categoryId: string | undefined;
-        if (assignee) {
-          const category = await findCategoryByName(assignee);
-          if (category) {
-            categoryId = category.id;
-          } else {
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: `Could not find a family member named "${assignee}". Use get_family_members to see available family members.`,
-                },
-              ],
-              isError: true,
-            };
-          }
-        }
+        if (assignee) categoryId = (await resolveProfile(assignee)).id;
 
         // Convert simple recurrence patterns to RRULE
         let recurrenceSet: string | undefined;
@@ -311,19 +291,7 @@ Returns: The updated chore details.`,
           if (assignee === null) {
             updates.categoryId = null;
           } else {
-            const category = await findCategoryByName(assignee);
-            if (!category) {
-              return {
-                content: [
-                  {
-                    type: "text" as const,
-                    text: `Could not find family member "${assignee}". Use get_family_members to see available members.`,
-                  },
-                ],
-                isError: true,
-              };
-            }
-            updates.categoryId = category.id;
+            updates.categoryId = (await resolveProfile(assignee)).id;
           }
         }
 
