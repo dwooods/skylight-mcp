@@ -32,7 +32,8 @@ what the hosted server leaves out.
 ## Quick Start
 
 You need Node 20+, a Skylight account, and an MCP client (Claude desktop, Claude
-Code, or any other). Nothing to clone or build.
+Code, or any other). Nothing to clone or build. Run the `npx` commands from any
+normal folder, **not from inside a clone of this repo** (see Troubleshooting).
 
 **Do I need the hosted server?** Probably not. The steps below give you the
 *local* server: it runs on your own computer while your MCP client is open and
@@ -165,6 +166,7 @@ fixed in 1.8.0), the live test suite, and `worker:setup`.
 
 | Symptom | Likely cause and fix |
 |---|---|
+| `'skylight-mcp' is not recognized` (Windows) or `skylight-mcp: command not found` | You ran `npx` from inside a clone of this repo, so npx tried to run the local project, whose command is not linked. `cd` to any other folder and run it again. From a clone, use `node dist/index.js` instead. |
 | Server fails to start, mentions configuration | `SKYLIGHT_FRAME_ID` missing. Run `doctor`. |
 | "Not signed in" | Run `auth login` then `auth complete`. Logins expire after 10 minutes. |
 | macOS Keychain error | The server refuses to fall back to plaintext. Unlock the Keychain or allow access when prompted. |
