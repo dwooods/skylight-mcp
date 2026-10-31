@@ -131,15 +131,21 @@ node dist/index.js auth login    # same steps as above, using node dist/index.js
 
 In the client config use `"command": "node", "args": ["/path/to/skylight-mcp/dist/index.js"]`.
 
-### Windows (not yet verified)
+### Windows (partly verified)
 
-Windows is untested as of this writing; treat these as expected, not confirmed.
+Verified on one Windows machine (Node 24): `npx` runs the package, `doctor --offline`
+works, `auth login` and `auth complete` finish the real sign-in, and the credential is
+saved to `%APPDATA%\skylight-mcp\credential.json`. **Not yet verified:** `doctor`'s
+Skylight check (it was broken on every platform until a fix after 1.7.0), the Claude
+desktop config below, and everything past sign-in.
 
 - `npx` is a `.cmd` file on Windows, so in a client config use
   `"command": "cmd", "args": ["/c", "npx", "-y", "@davidwoods/skylight-mcp"]`.
 - Set variables in PowerShell like this, then run the command on the next line:
   `$env:SKYLIGHT_FRAME_ID="your_frame_id"; $env:SKYLIGHT_TIMEZONE="America/New_York"`.
-- The sign-in is stored unencrypted in `%APPDATA%\skylight-mcp\credential.json`.
+- In Windows Terminal you can hold Ctrl and click the sign-in URL. In the history
+  search, right-click the result dated today and choose Copy link address.
+- The sign-in is stored **unencrypted** in `%APPDATA%\skylight-mcp\credential.json`.
   There is no Keychain equivalent wired in, and Windows ignores Unix `0600`
   permissions. Only your Windows user profile protects it.
 
