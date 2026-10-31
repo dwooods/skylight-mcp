@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `complete_chore`: mark one occurrence of a routine or recurring chore done, or undo it, via Skylight's completions endpoint. Previews unless `confirm: true` (it awards real stars and streaks). Available on both the local and hosted servers. One-off chores are refused until their payload is captured.
+- `get_chores` prints `Routine: Yes` and `get_week_overview` tags `[routine]` for routines. A routine
+  is a recurring chore with `routine: true` (captured from the web app's create call; "In the Morning"
+  was `BYHOUR=6`; afternoon, evening and weekly values are not captured). Read-only marking; completing one is `complete_chore`; there is no tool
+  to create a routine yet.
 
 ### Fixed
 - `get_reward_points` showed `ID: undefined` and raw category ids; it now shows each profile's name, current balance and lifetime earned.

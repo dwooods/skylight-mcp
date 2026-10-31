@@ -120,7 +120,7 @@ Parameters:
           const a = chore.attributes;
           const catId = chore.relationships?.category?.data?.id;
           const who = catId ? assignee.get(catId) : a.up_for_grabs ? "up for grabs" : undefined;
-          const line = `${isChoreDone(a.status) ? "[x]" : "[ ]"} ${a.summary}${who ? ` (${who})` : ""}${a.start_time ? ` at ${a.start_time}` : ""}${a.reward_points ? `, ${a.reward_points} pts` : ""} [chore ID: ${chore.id}]`;
+          const line = `${isChoreDone(a.status) ? "[x]" : "[ ]"} ${a.summary}${a.routine ? " [routine]" : ""}${who ? ` (${who})` : ""}${a.start_time ? ` at ${a.start_time}` : ""}${a.reward_points ? `, ${a.reward_points} pts` : ""} [chore ID: ${chore.id}]`;
           if (a.start < start && !isChoreDone(a.status)) late.push(`${line}, due ${formatDay(a.start)}`);
           else choresByDay.get(a.start)?.push(line);
         }
