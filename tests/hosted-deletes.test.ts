@@ -46,17 +46,6 @@ const cases: Array<[string, Record<string, unknown>]> = [
   ["delete_recipe", { recipeId: "3" }],
 ];
 
-describe("delete_chore on recurring chores", () => {
-  it("refuses an occurrence id, with or without confirm, and sends no DELETE", async () => {
-    for (const confirm of [false, true]) {
-      const seen = stub();
-      const text = await call("delete_chore", { choreId: "100-2026-11-03-0600", confirm });
-      expect(text).toContain("not supported");
-      expect(seen.filter((s) => s.method === "DELETE")).toEqual([]);
-    }
-  });
-});
-
 describe("hosted deletes are gated by confirm", () => {
   it.each(cases)("%s previews and sends no DELETE without confirm", async (name, args) => {
     const seen = stub();

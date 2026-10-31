@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { getChores, createChore, updateChore, deleteChore, isChoreDone, parseOccurrenceId, completeChoreOccurrence } from "../api/endpoints/chores.js";
-import { resolveProfile } from "../api/endpoints/categories.js";
+import { getChores, createChore, updateChore, deleteChore, isChoreDone, parseOccurrenceId, completeChoreOccurrence, deleteChoreOccurrence, updateChoreOccurrence, createRoutine, buildWeeklyRule, WEEK_DAYS } from "../api/endpoints/chores.js";
+import { resolveProfile, resolveProfileIds } from "../api/endpoints/categories.js";
 import { getTodayDate, getDateOffset, parseDate, parseTime, formatDateForDisplay } from "../utils/dates.js";
 import { formatErrorForMcp } from "../utils/errors.js";
 import { getConfig } from "../config.js";
@@ -270,6 +270,8 @@ Parameters:
 - time: New due time
 - assignee: New family member assignment
 
+Recurring chores and routines (ids like 12345-2026-11-03-0600): only summary (rename) and the weekly schedule (days plus timeOfDay, together) can be changed; date, time, assignee and rewardPoints are refused because they have not been captured. Skylight gives the chore a NEW id after every edit, and the reply says what it is. Changing the schedule of a habit-tracked routine can reset its streak history, so it needs acknowledgeReset: true after the user agrees.
+
 Returns: The updated chore details.`,
     {
       choreId: z.string().describe("ID of the chore to update"),
@@ -279,8 +281,11 @@ Returns: The updated chore details.`,
       time: z.string().nullable().optional().describe("New due time (e.g., '10:00 AM', or null to clear)"),
       assignee: z.string().nullable().optional().describe("New family member assignment (or null to unassign)"),
       rewardPoints: z.number().nullable().optional().describe("New reward points (or null to clear)"),
+      days: z.array(z.enum(WEEK_DAYS as unknown as [string, ...string[]])).optional().describe("Recurring chores only: weekdays the routine repeats on (MO TU WE TH FR SA SU). Give with timeOfDay."),
+      timeOfDay: z.enum(["morning", "afternoon", "evening"]).optional().describe("Recurring chores only: 'In the' part of day. Give with days."),
+      acknowledgeReset: z.boolean().optional().default(false).describe("Set true only after the user agrees that a schedule change may reset the routine's streak history"),
     },
-    async ({ choreId, summary, status, date, time, assignee, rewardPoints }) => {
+    async ({ choreId, summary, status, date, time, assignee, rewardPoints, days, timeOfDay, acknowledgeReset }) => {
       try {
         if (status !== undefined) {
           return {
@@ -292,6 +297,29 @@ Returns: The updated chore details.`,
             ],
             isError: true,
           };
+        }
+        const occurrence = parseOccurrenceId(choreId);
+        if (occurrence) {
+          const refuse = (text: string) => ({ content: [{ type: "text" as const, text }], isError: true });
+          if (date !== undefined || time !== undefined || assignee !== undefined || rewardPoints !== undefined) {
+            return refuse("For recurring chores and routines only summary and the weekly schedule (days + timeOfDay) can be changed here; date, time, assignee and rewardPoints have not been captured. Nothing was changed.");
+          }
+          if ((days === undefined) !== (timeOfDay === undefined)) {
+            return refuse("Give days and timeOfDay together to change a schedule. Nothing was changed.");
+          }
+          if (days !== undefined && days.length === 0) return refuse("days cannot be empty. Nothing was changed.");
+          if (summary === undefined && days === undefined) return refuse("Nothing to change: give a summary, or days with timeOfDay.");
+          if (days !== undefined && !acknowledgeReset) {
+            return refuse("Changing the schedule of a routine can reset its streak history, and Skylight gives the chore a new id. Tell the user, and call again with acknowledgeReset: true after they agree. Nothing was changed.");
+          }
+          const changes: { summary?: string; recurrenceSet?: string[] } = {};
+          if (summary !== undefined) changes.summary = summary;
+          if (days !== undefined && timeOfDay !== undefined) changes.recurrenceSet = [buildWeeklyRule(days as typeof WEEK_DAYS[number][], timeOfDay)];
+          const result = await updateChoreOccurrence(choreId, changes);
+          const lines = [`Updated "${result.summary ?? choreId}".`];
+          if (result.recurrenceSet) lines.push(`Schedule: ${result.recurrenceSet.join("; ")}`);
+          lines.push(result.newId ? `Skylight re-keyed this chore: the series id is now ${result.newId}. Occurrence ids from before this edit are stale; run get_chores again.` : "Run get_chores again; ids may have changed.");
+          return { content: [{ type: "text" as const, text: lines.join("\n") }] };
         }
         const config = getConfig();
         const updates: Parameters<typeof updateChore>[1] = {};
@@ -319,6 +347,61 @@ Returns: The updated chore details.`,
             },
           ],
         };
+      } catch (error) {
+        return {
+          content: [{ type: "text" as const, text: formatErrorForMcp(error) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // create_routine tool
+  server.tool(
+    "create_routine",
+    `Create a routine: a weekly recurring chore that shows on the routine chart for one or more family members.
+
+Use this when the user wants a repeating habit like "brush teeth every morning" for specific people. A separate routine is created for each profile.
+
+Parameters:
+- summary (required): routine name
+- profiles (required): family member names, as in get_family_members
+- days (required): weekdays it repeats on (MO TU WE TH FR SA SU)
+- timeOfDay (required): morning, afternoon or evening
+- startDate: first day (YYYY-MM-DD or 'today'); defaults to today
+- trackHabit: track streaks (default false)
+- rewardPoints: stars per completion
+- emojiIcon: optional emoji
+
+Only weekly schedules are supported (every day = all seven days). Returns the new series ids.`,
+    {
+      summary: z.string().min(1).describe("Routine name"),
+      profiles: z.array(z.string()).min(1).describe("Family member names"),
+      days: z.array(z.enum(WEEK_DAYS as unknown as [string, ...string[]])).min(1).describe("Weekdays: MO TU WE TH FR SA SU"),
+      timeOfDay: z.enum(["morning", "afternoon", "evening"]).describe("In the morning, afternoon or evening"),
+      startDate: z.string().optional().describe("First day (YYYY-MM-DD or 'today'). Defaults to today."),
+      trackHabit: z.boolean().optional().default(false).describe("Track streaks"),
+      rewardPoints: z.number().optional().describe("Stars per completion"),
+      emojiIcon: z.string().optional().describe("Optional emoji"),
+    },
+    async ({ summary, profiles, days, timeOfDay, startDate, trackHabit, rewardPoints, emojiIcon }) => {
+      try {
+        const config = getConfig();
+        const start = startDate ? parseDate(startDate, config.timezone) : getTodayDate(config.timezone);
+        const resolved = await resolveProfileIds(profiles);
+        const created = await createRoutine({
+          summary,
+          start,
+          categoryIds: resolved.ids,
+          recurrenceSet: [buildWeeklyRule(days as typeof WEEK_DAYS[number][], timeOfDay)],
+          trackHabit,
+          rewardPoints: rewardPoints ?? null,
+          emojiIcon: emojiIcon ?? null,
+        });
+        const text = created.length
+          ? `Created routine "${summary}" for ${resolved.labels.join(", ")} (${timeOfDay}, ${days.join(",")}). Series ids: ${created.map((c) => c.id).join(", ")}.`
+          : `Skylight accepted the request but returned no routine; check the app.`;
+        return { content: [{ type: "text" as const, text }] };
       } catch (error) {
         return {
           content: [{ type: "text" as const, text: formatErrorForMcp(error) }],
@@ -402,25 +485,54 @@ Use this when:
 
 Parameters:
 - choreId (required): ID of the chore to delete (from get_chores)
+- scope: required for recurring chores and routines (ids like 12345-2026-11-03-0600). "future" deletes this day and every later day ("Delete this and future tasks" in the app); "all" deletes the whole series ("Delete all tasks in series"). Ignored for one-off chores.
 - confirm: must be true to delete; without it nothing is deleted and a preview is returned.
 
-Note: This permanently removes the chore. Occurrences of recurring chores and routines (ids like 12345-2026-11-03-0600) are refused; delete those in the Skylight app.`,
+Note: This permanently removes the chore. Deleting a routine also loses its streak history. Skylight returns no body, so the tool reads the chores back and reports whether the occurrence is gone.`,
     {
       choreId: z.string().describe("ID of the chore to delete"),
+      scope: z.enum(["future", "all"]).optional().describe("Recurring chores only: 'future' = this and later days, 'all' = the whole series"),
       confirm: z.boolean().optional().default(false).describe("Must be true to delete; otherwise only a preview is returned"),
     },
-    async ({ choreId, confirm }) => {
+    async ({ choreId, scope, confirm }) => {
       try {
-        // The app asks "this and future" vs "all in series" when deleting a recurring chore;
-        // what DELETE /chores/{id} does to a series is not captured, so refuse rather than guess.
-        if (parseOccurrenceId(choreId) !== null) {
+        const occurrence = parseOccurrenceId(choreId);
+        if (occurrence) {
+          if (!scope) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `"${choreId}" is a recurring chore or routine, so say how much to delete: scope "future" (this day and every later day) or scope "all" (the whole series). Nothing was changed.`,
+                },
+              ],
+              isError: true,
+            };
+          }
+          const what = scope === "all" ? `the whole series ${occurrence.seriesId} (every day, past and future)` : `${occurrence.instanceDate} and every later day of series ${occurrence.seriesId}`;
+          if (!confirm) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Preview only, nothing deleted. Would permanently delete ${what}. If it is a habit-tracked routine, its streak history goes too. Call again with confirm: true after the user says yes.`,
+                },
+              ],
+            };
+          }
+          await deleteChoreOccurrence(choreId, scope);
+          let verdict = "Could not read the chores back to confirm.";
+          try {
+            const { chores } = await getChores({ after: occurrence.instanceDate, before: occurrence.instanceDate, includeLate: false, includeUpForGrabs: true });
+            verdict = chores.some((c) => c.id === choreId) ? "Skylight accepted the request but the occurrence is still listed; check the app." : "Confirmed: it no longer appears.";
+          } catch {
+            // read-back is best effort; the delete itself already succeeded
+          }
+          return { content: [{ type: "text" as const, text: `Deleted ${what}. ${verdict}` }] };
+        }
+        if (scope) {
           return {
-            content: [
-              {
-                type: "text" as const,
-                text: `"${choreId}" is an occurrence of a recurring chore or routine. Deleting those is not supported yet, because Skylight asks whether to delete "this and future" or "all in series" and that call has not been captured. Delete it in the Skylight app. Nothing was changed.`,
-              },
-            ],
+            content: [{ type: "text" as const, text: `scope only applies to recurring chores and routines; "${choreId}" is a one-off chore. Nothing was changed. Call again without scope.` }],
             isError: true,
           };
         }
@@ -430,14 +542,7 @@ Note: This permanently removes the chore. Occurrences of recurring chores and ro
           };
         }
         await deleteChore(choreId);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Deleted chore (ID: ${choreId})`,
-            },
-          ],
-        };
+        return { content: [{ type: "text" as const, text: `Deleted chore (ID: ${choreId})` }] };
       } catch (error) {
         return {
           content: [{ type: "text" as const, text: formatErrorForMcp(error) }],

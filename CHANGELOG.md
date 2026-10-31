@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `create_routine`: create a weekly routine (morning, afternoon or evening) for one or more profiles, via the web app's `create_multiple` call. Weekly schedules only.
+- `delete_chore` takes `scope`: `future` ("this and future tasks") or `all` ("all tasks in series"), sent as `apply_to`. Required for recurring chores and routines, which replaces the 1.8.3 refusal. It reads the chores back and reports whether the occurrence is gone.
+- `update_chore` works on recurring chores and routines for a rename and for a weekly schedule (`days` + `timeOfDay`). Schedule changes need `acknowledgeReset: true` because they can reset streak history. Skylight re-keys the chore on every edit; the reply gives the new id.
+
+### Changed
+- `update_chore` on a recurring chore refuses date, time, assignee and stars (never captured) instead of guessing.
+
 ## [1.8.3] - 2026-10-31
 
 ### Changed

@@ -386,7 +386,7 @@ Nothing here is hidden behind a flag. It is either unavailable from Skylight or 
 - **Messages**: sending to specific devices, scheduling, repeating, voice notes, and read-aloud (the option exists on `send_message` but was not tested live). Deleting works but the app has no delete button.
 - **Meals**: editing or deleting a repeating meal (it is refused, because the behaviour of changing one occurrence of a series was not captured), saving a meal to the recipe box from the edit form, and Skylight's own "Plan Meals" feature.
 - **Task box**: editing or completing tasks, and saving a routine template to it.
-- **Chores**: completing a one-off (non-recurring) chore, Skip, editing a routine or recurring chore (the app's edit call is not captured, so `update_chore` may not behave on a series), and deleting a recurring chore with a scope. The app asks "this and future" or "all in series" on delete; `delete_chore` has no scope option, so it refuses occurrence ids of recurring chores and routines; delete those in the app. Un-completing a routine cannot reduce its `longest_streak`.
+- **Chores**: completing a one-off (non-recurring) chore, Skip, daily or monthly routine schedules (only the weekly format has been captured), and editing a recurring chore's date, time, assignee or stars. Un-completing a routine cannot reduce its `longest_streak`. Whether "this and future" from a later day keeps the earlier days has not been checked (the capture started from the first day).
 - **Profiles**: creating or editing them. Read-only.
 - **Settings, account, notifications, sleep schedule, device navigation**: none of these are exposed.
 - **Photos**: uploads and anything beyond listing albums.
@@ -446,9 +446,10 @@ Messages are the notes shown on the frame (Skylight's web app calls them "nudges
 |------|--------|-------------|
 | `get_chores` | read | Chores with optional filters (date, assignee, status) |
 | `create_chore` | write | Create a chore, optionally recurring |
-| `update_chore` | write | Rename, reschedule, reassign a chore. Completion goes through `complete_chore`. |
+| `update_chore` | write | Rename, reschedule, reassign a one-off chore. For recurring chores and routines only a rename and a weekly schedule (`days` + `timeOfDay`) are supported; a schedule change needs `acknowledgeReset: true` because it can reset streak history, and Skylight re-keys the chore (the reply gives the new id). Completion goes through `complete_chore`. |
+| `create_routine` | write | Create a weekly routine (morning, afternoon or evening) for one or more profiles, via `create_multiple`. Optional habit tracking and stars. Weekly schedules only. |
 | `complete_chore` | write | Mark one occurrence of a routine or recurring chore done, or undo it. Previews unless `confirm: true`; awards real stars and streaks on the family display. Recurring chores only. |
-| `delete_chore` | destructive | Delete a chore. Local server only. |
+| `delete_chore` | destructive | Delete a chore. Previews unless `confirm: true`. Recurring chores and routines need `scope`: `future` (this day and later) or `all` (whole series), sent as `apply_to`. Reads back to confirm. Available on the hosted server too. |
 
 ### Task Tools
 
@@ -529,7 +530,7 @@ All calls go to `https://app.ourskylight.com/api` (pinned in code). `{f}` is the
 | Meals | `GET /meals/categories`, `GET/POST /meals/sittings`, `PATCH/DELETE /meals/sittings/{id}/instances/{date}` (all live) |
 | Recipes | `GET/POST /meals/recipes`, `GET/PATCH/DELETE /meals/recipes/{id}`, `POST /meals/recipes/{id}/add_to_grocery_list` |
 | Profiles and family | `GET /frames/{f}/categories` (live), `GET /frames/{f}`, `GET /frames/{f}/devices`, `GET /api/avatars`, `GET /api/colors` |
-| Chores and routines | `GET /frames/{f}/chores` (live; `include_up_for_grabs`), `POST /chores`, `PUT/DELETE /chores/{id}`, `PUT /chores/{series id}/completions` (body `status` `complete`/`pending`, `instance_date`, `instance_time`; captured live, the tool is untested live), `POST /chores/create_multiple` (captured, no tool yet) |
+| Chores and routines | `GET /frames/{f}/chores` (live; `include_up_for_grabs`), `POST /chores`, `PUT/DELETE /chores/{id}` (one-off), `PUT /chores/{occurrence id}` (flat `{summary}` or `{recurrence_set}`; re-keys the chore), `DELETE /chores/{occurrence id}?apply_to=future\|all`, `PUT /chores/{series id}/completions` (body `status` `complete`/`pending`, `instance_date`, `instance_time`), `POST /chores/create_multiple`. All routine calls captured from the web app; the tools are not yet run live |
 | Task box | `GET /frames/{f}/task_box/items` (live), `POST /frames/{f}/task_box/items` |
 | Lists | `GET/POST /lists`, `GET/PUT/DELETE /lists/{id}`, `POST /lists/{id}/list_items`, `PUT/DELETE /lists/{id}/list_items/{itemId}` |
 | Rewards | `GET/POST /rewards`, `PATCH/DELETE /rewards/{id}`, `POST /rewards/{id}/redeem`, `POST /rewards/{id}/unredeem`, `GET /reward_points` |
