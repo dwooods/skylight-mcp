@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-10-31
+
 ### Changed
 - The hosted Worker now also offers `delete_chore`, `delete_list`, `delete_list_item`, `delete_reward`, `delete_recipe` and `delete_meal_sitting` (plus `delete_message`). `delete_calendar_event` stays local-only.
 - **Behavior change:** `delete_chore`, `delete_list`, `delete_list_item`, `delete_reward` and `delete_recipe` now preview and delete nothing unless `confirm: true` (as `delete_meal_sitting` and `delete_message` already did). This applies to the local server too.
