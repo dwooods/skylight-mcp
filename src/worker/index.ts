@@ -43,7 +43,7 @@ export interface Env {
 }
 
 const SCOPE = "skylight";
-const VERSION = "1.8.2";
+const VERSION = "1.8.3";
 
 interface UpstreamData {
   codeVerifier: string;
