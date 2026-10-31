@@ -8,6 +8,15 @@ import type {
   UpdateChoreRequest,
 } from "../types.js";
 
+/**
+ * A chore is done when Skylight says so. The live API reports `complete` (seen on a
+ * real chore and in the web app's completion response); older code and docs said
+ * `completed`. Accept both so neither a Skylight change nor an old value flips a done chore to pending.
+ */
+export function isChoreDone(status: string | null | undefined): boolean {
+  return status === "complete" || status === "completed";
+}
+
 export interface GetChoresOptions {
   after?: string;
   before?: string;

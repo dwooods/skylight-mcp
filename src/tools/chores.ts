@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { getChores, createChore, updateChore, deleteChore } from "../api/endpoints/chores.js";
+import { getChores, createChore, updateChore, deleteChore, isChoreDone } from "../api/endpoints/chores.js";
 import { resolveProfile } from "../api/endpoints/categories.js";
 import { getTodayDate, getDateOffset, parseDate, parseTime, formatDateForDisplay } from "../utils/dates.js";
 import { formatErrorForMcp } from "../utils/errors.js";
@@ -61,7 +61,8 @@ Returns chores with their assignees, due dates, and completion status.`,
 
         // Filter by status
         if (status !== "all") {
-          chores = chores.filter((chore) => chore.attributes.status === status);
+          const wantDone = status === "completed";
+          chores = chores.filter((chore) => isChoreDone(chore.attributes.status) === wantDone);
         }
 
         // Build category lookup for assignee names

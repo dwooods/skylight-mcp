@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A completed chore is reported by Skylight as `complete`; the tools compared against `completed`.
+  `get_chores` with `status: completed` found nothing and `pending` listed done chores, and
+  `get_week_overview` showed done chores as `[ ]` and as overdue. Both values now count as done.
+  Not fixed here: `update_chore` still sends the old status value to a different endpoint than
+  the web app's completion call (see build log).
+
 ### Changed
 
 - **Behavior change:** profile names are now matched exactly (case-insensitive) everywhere:

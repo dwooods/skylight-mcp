@@ -14,7 +14,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getCalendarEvents } from "../api/endpoints/calendar.js";
-import { getChores } from "../api/endpoints/chores.js";
+import { getChores, isChoreDone } from "../api/endpoints/chores.js";
 import { getListWithItems, getLists } from "../api/endpoints/lists.js";
 import {
   addRecipeToGroceryList,
@@ -120,8 +120,8 @@ Parameters:
           const a = chore.attributes;
           const catId = chore.relationships?.category?.data?.id;
           const who = catId ? assignee.get(catId) : a.up_for_grabs ? "up for grabs" : undefined;
-          const line = `${a.status === "completed" ? "[x]" : "[ ]"} ${a.summary}${who ? ` (${who})` : ""}${a.start_time ? ` at ${a.start_time}` : ""}${a.reward_points ? `, ${a.reward_points} pts` : ""} [chore ID: ${chore.id}]`;
-          if (a.start < start && a.status !== "completed") late.push(`${line}, due ${formatDay(a.start)}`);
+          const line = `${isChoreDone(a.status) ? "[x]" : "[ ]"} ${a.summary}${who ? ` (${who})` : ""}${a.start_time ? ` at ${a.start_time}` : ""}${a.reward_points ? `, ${a.reward_points} pts` : ""} [chore ID: ${chore.id}]`;
+          if (a.start < start && !isChoreDone(a.status)) late.push(`${line}, due ${formatDay(a.start)}`);
           else choresByDay.get(a.start)?.push(line);
         }
 
