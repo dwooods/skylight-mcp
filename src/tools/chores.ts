@@ -104,6 +104,10 @@ Returns chores with their assignees, due dates, and completion status.`,
               parts.push(`  Assigned to: nobody (up for grabs)`);
             }
 
+            if (attrs.routine) {
+              parts.push(`  Routine: Yes (a habit that repeats; shows on the routine chart)`);
+            }
+
             if (attrs.recurring) {
               parts.push(`  Recurring: Yes${attrs.recurrence_set ? ` (${attrs.recurrence_set})` : ""}`);
             }
