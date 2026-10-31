@@ -41,7 +41,7 @@ exposes every tool. The *hosted* server (a Cloudflare Worker) is optional. You
 only need it if Claude Duet or Claude on another device has to reach Skylight
 when this computer is off. It means cloning the repo, a free Cloudflare
 account, `npx wrangler login`, `npm run worker:setup`, and a second sign-in,
-and it exposes only read and write tools plus `delete_message`. Do the local
+and it exposes read and write tools plus a short list of deletes (chores, lists, list items, rewards, recipes, meal sittings, messages; not calendar events). Do the local
 setup first; see
 [Hosted server (Claude Duet, Claude on other devices)](#hosted-server-claude-duet-claude-on-other-devices)
 if you need it later.

@@ -274,13 +274,20 @@ Use this when:
 
 Parameters:
 - rewardId (required): ID of the reward to delete (from get_rewards)
+- confirm: must be true to delete; without it nothing is deleted and a preview is returned.
 
 Note: This permanently removes the reward.`,
     {
       rewardId: z.string().describe("ID of the reward to delete"),
+      confirm: z.boolean().optional().default(false).describe("Must be true to delete; otherwise only a preview is returned"),
     },
-    async ({ rewardId }) => {
+    async ({ rewardId, confirm }) => {
       try {
+        if (!confirm) {
+          return {
+            content: [{ type: "text" as const, text: `Preview only, nothing deleted. Would permanently delete reward ${rewardId}. Call again with confirm: true after the user says yes.` }],
+          };
+        }
         await deleteReward(rewardId);
         return {
           content: [

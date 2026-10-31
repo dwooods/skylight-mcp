@@ -16,7 +16,15 @@ import type { SkylightProps } from "./props.js";
  * exception to "no destructive tools on the hosted server".
  */
 export const HOSTED_EFFECTS: readonly ToolEffect[] = ["read", "write"];
-export const HOSTED_DESTRUCTIVE_ALLOWLIST: readonly string[] = ["delete_message"];
+export const HOSTED_DESTRUCTIVE_ALLOWLIST: readonly string[] = [
+  "delete_message",
+  "delete_chore",
+  "delete_list",
+  "delete_list_item",
+  "delete_reward",
+  "delete_recipe",
+  "delete_meal_sitting",
+];
 
 export async function handleMcpRequest(request: Request, props: SkylightProps, version: string): Promise<Response> {
   const config = { frameId: props.frameId, timezone: props.timezone, token: props.accessToken, authType: "bearer" as const };

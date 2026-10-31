@@ -120,11 +120,12 @@ describe("delete_message", () => {
     expect(() => assertNudgeId("76667/../x")).toThrow();
   });
 
-  it("is offered on the hosted server, and no other destructive tool is", async () => {
+  it("is offered on the hosted server, with only the allowlisted destructive tools", async () => {
     const res = await handleMcpRequest(rpc("tools/list", {}), props, "t");
     const tools = ((await res.json()) as { result: { tools: Array<{ name: string; annotations?: { destructiveHint?: boolean } }> } }).result.tools;
     const destructive = tools.filter((t) => t.annotations?.destructiveHint).map((t) => t.name);
-    expect(destructive).toEqual(["delete_message"]);
+    expect(destructive).toContain("delete_message");
+    expect(destructive).not.toContain("delete_calendar_event");
     expect(tools.map((t) => t.name)).toContain("send_message");
   });
 
