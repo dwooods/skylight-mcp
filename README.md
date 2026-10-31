@@ -34,17 +34,44 @@ what the hosted server leaves out.
 You need Node 20+, a Skylight account, and an MCP client (Claude desktop, Claude
 Code, or any other). Nothing to clone or build.
 
-### 1. Sign in (once)
+### 1. Find your frame ID and timezone
+
+Sign in to the Skylight web app at https://ourskylight.com. Your frame ID is the
+number in the address bar, `https://ourskylight.com/my-skylight/<number>` (see
+[Finding your Frame ID](#finding-your-frame-id)). Your timezone is an IANA name
+such as `America/Chicago`. **Set it**: it defaults to `America/New_York`, and
+event times and date windows come out wrong anywhere else.
+
+### 2. Set them in your terminal
+
+These last only for the terminal window you set them in. Your MCP client does
+not inherit them; step 5 puts them in its config.
+
+macOS / Linux:
+```bash
+export SKYLIGHT_FRAME_ID=your_frame_id
+export SKYLIGHT_TIMEZONE=America/New_York
+```
+
+Windows PowerShell:
+```powershell
+$env:SKYLIGHT_FRAME_ID="your_frame_id"
+$env:SKYLIGHT_TIMEZONE="America/New_York"
+```
+
+### 3. Sign in (once)
 
 ```bash
 npx -y @davidwoods/skylight-mcp auth login
 ```
 
-This prints a Skylight sign-in URL. Open it in your browser and sign in. The
+This prints a Skylight sign-in URL. Open it in your browser and sign in (in Windows
+Terminal, hold Ctrl and click the URL). The
 browser bounces through `https://ourskylight.com/welcome?code=...` and on to
 the Skylight home page too fast to copy. Get it from your browser history:
-`Cmd-Y` (Mac) / `Ctrl-H`, search `welcome?code`, right-click the newest
-Skylight result, Copy link address. Then:
+`Cmd-Y` (Mac) / `Ctrl-H` (PC), search `welcome?code`, right-click the Skylight
+result dated today (top of the list; older ones are earlier sign-ins and will not
+work), Copy link address. Then:
 
 ```bash
 npx -y @davidwoods/skylight-mcp auth complete
@@ -55,15 +82,18 @@ OAuth tokens are stored, encrypted with a key in the macOS Keychain (plain
 `0600` file on Linux/Windows). macOS may ask once to allow Keychain access.
 `auth status` and `auth logout` do what they say.
 
-### 2. Find your frame ID and timezone
+### 4. Check it
 
-Your frame ID is the number in `https://ourskylight.com/my-skylight/<number>`
-after you sign in to the Skylight web app (see
-[Finding your Frame ID](#finding-your-frame-id)). Your timezone is an IANA name
-such as `America/Chicago`. **Set it**: it defaults to `America/New_York`, and
-event times and date windows come out wrong anywhere else.
+```bash
+npx -y @davidwoods/skylight-mcp doctor
+```
 
-### 3. Add to your MCP client
+`doctor` checks Node, the frame ID, the timezone, your sign-in and one real call
+to Skylight, and says what to fix. It never prints tokens or your frame ID.
+Add `--offline` to skip the network call. Do this before step 5: a client that
+fails to start gives you much less to go on than `doctor` does.
+
+### 5. Add to your MCP client
 
 **Claude desktop** (Settings → Developer → Edit Config), or any client that uses `mcp.json`:
 ```json
@@ -91,17 +121,6 @@ claude mcp add skylight \
 Restart the client fully (Cmd-Q on Mac), then ask it "what's on the family
 calendar this week?"
 
-### 4. Check it
-
-```bash
-SKYLIGHT_FRAME_ID=your_frame_id SKYLIGHT_TIMEZONE=America/New_York \
-  npx -y @davidwoods/skylight-mcp doctor
-```
-
-`doctor` checks Node, the frame ID, the timezone, your sign-in and one real call
-to Skylight, and says what to fix. It never prints tokens or your frame ID.
-Add `--offline` to skip the network call.
-
 ### From source (contributors)
 
 ```bash
@@ -112,15 +131,21 @@ node dist/index.js auth login    # same steps as above, using node dist/index.js
 
 In the client config use `"command": "node", "args": ["/path/to/skylight-mcp/dist/index.js"]`.
 
-### Windows (not yet verified)
+### Windows (partly verified)
 
-Windows is untested as of this writing; treat these as expected, not confirmed.
+Verified on one Windows machine (Node 24): `npx` runs the package, `doctor --offline`
+works, `auth login` and `auth complete` finish the real sign-in, and the credential is
+saved to `%APPDATA%\skylight-mcp\credential.json`. **Not yet verified:** `doctor`'s
+Skylight check (it was broken on every platform until a fix after 1.7.0), the Claude
+desktop config below, and everything past sign-in.
 
 - `npx` is a `.cmd` file on Windows, so in a client config use
   `"command": "cmd", "args": ["/c", "npx", "-y", "@davidwoods/skylight-mcp"]`.
 - Set variables in PowerShell like this, then run the command on the next line:
   `$env:SKYLIGHT_FRAME_ID="your_frame_id"; $env:SKYLIGHT_TIMEZONE="America/New_York"`.
-- The sign-in is stored unencrypted in `%APPDATA%\skylight-mcp\credential.json`.
+- In Windows Terminal you can hold Ctrl and click the sign-in URL. In the history
+  search, right-click the result dated today and choose Copy link address.
+- The sign-in is stored **unencrypted** in `%APPDATA%\skylight-mcp\credential.json`.
   There is no Keychain equivalent wired in, and Windows ignores Unix `0600`
   permissions. Only your Windows user profile protects it.
 
