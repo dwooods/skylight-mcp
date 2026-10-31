@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { assertNudgeId, createNudge, deleteNudge, findNudge, getNudges, updateNudge, type NudgeResource } from "../api/endpoints/messages.js";
-import { getCategories, findCategoryByName, resolveProfileIds } from "../api/endpoints/categories.js";
+import { getCategories, resolveProfile, resolveProfileIds } from "../api/endpoints/categories.js";
 import { getConfig } from "../config.js";
 import { parseDate, getDateOffset } from "../utils/dates.js";
 import { dateInZone, formatDay, formatTime } from "../utils/schedule.js";
@@ -86,14 +86,7 @@ Check get_messages first to avoid posting a duplicate.`,
         const recipients = to && to.length > 0 ? await resolveProfileIds(to) : undefined;
         const audience = recipients ? recipients.labels.join(", ") : "everyone";
         let senderCategoryId: string | undefined;
-        if (from) {
-          const match = await findCategoryByName(from);
-          if (!match) {
-            const known = (await getCategories()).map((c) => c.attributes.label).filter(Boolean).join(", ");
-            throw new Error(`No profile called "${from}". Profiles: ${known}.`);
-          }
-          senderCategoryId = match.id;
-        }
+        if (from) senderCategoryId = (await resolveProfile(from)).id;
         const who = senderCategoryId ? ` from ${from}` : "";
         if (confirm !== true) {
           return {
@@ -137,14 +130,7 @@ ID from get_messages (looks within 31 days either side of today).`,
         const existing = await findNudge(id, timezone);
         if (!existing) throw new Error(`No message with ID ${id} within 31 days of today.`);
         let senderCategoryId: string | undefined;
-        if (from) {
-          const match = await findCategoryByName(from);
-          if (!match) {
-            const known = (await getCategories()).map((c) => c.attributes.label).filter(Boolean).join(", ");
-            throw new Error(`No profile called "${from}". Profiles: ${known}.`);
-          }
-          senderCategoryId = match.id;
-        }
+        if (from) senderCategoryId = (await resolveProfile(from)).id;
         await updateNudge({ existing, body: text, senderCategoryId, timeZone: timezone });
         return { content: [{ type: "text" as const, text: `Updated message ${id}: "${text}"` }] };
       } catch (error) {
