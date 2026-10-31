@@ -145,10 +145,11 @@ In the client config use `"command": "node", "args": ["/path/to/skylight-mcp/dis
 ### Windows (partly verified)
 
 Verified on one Windows machine (Node 24): `npx` runs the package, `doctor --offline`
-works, `auth login` and `auth complete` finish the real sign-in, and the credential is
-saved to `%APPDATA%\skylight-mcp\credential.json`. **Not yet verified:** `doctor`'s
-Skylight check (it was broken on every platform until a fix after 1.7.0), the Claude
-desktop config below, and everything past sign-in.
+works, `auth login` and `auth complete` finish the real sign-in, the credential is
+saved to `%APPDATA%\skylight-mcp\credential.json`, and the Claude desktop app runs the
+server from the config below and reads real calendar data. **Not yet verified:**
+`doctor`'s Skylight check on Windows (it was broken on every platform in 1.7.0 and is
+fixed in 1.8.0), the live test suite, and `worker:setup`.
 
 - `npx` is a `.cmd` file on Windows, so in a client config use
   `"command": "cmd", "args": ["/c", "npx", "-y", "@davidwoods/skylight-mcp"]`.

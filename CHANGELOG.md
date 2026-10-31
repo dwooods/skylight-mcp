@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.8.0] - 2026-10-31
 
 ### Fixed
 
@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Up for Grabs chores**: chore reads now always ask Skylight for shared chores that anyone
+  can take (the web app does; without it they were never returned). `get_chores` shows them as
+  "Assigned to: nobody (up for grabs)" and `get_week_overview` labels them. Verified live with
+  the Skylight toggle off only.
 - `get_task_box` (read-only, available on the hosted server): lists the task box. Items are
   reusable chore and routine templates with no assignee or date, so a task saved there does
   not appear in `get_chores`. Shape captured from the web app; an unrecognised response is
@@ -43,6 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `get_calendar_events` prints a `profiles:` line naming who an event is assigned to.
   The response field it reads (`relationships.categories`, or `category_ids`) is inferred
   from chores and messages and has not been confirmed on a real event.
+- **Live test suite** (`npm run test:live`, development only). Real tools against a
+  real frame, to catch drift in Skylight's undocumented API that mocked tests
+  cannot see. Off unless `SKYLIGHT_LIVE=1`, never part of `npm test` or CI, and
+  the harness refuses `send_message`, `update_message` and `delete_message`. One suite per file in
+  `tests/live/`, filterable by tag. First suites: read smoke checks,
+  response-shape contract checks, write guards and a meal
+  create/rename/move/delete round trip with guaranteed cleanup. A normal-suite
+  test checks that every live file is gated.
 
 ## [1.7.0] - 2026-10-30
 
@@ -70,19 +82,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returned nothing and ranges lost their last day (week overview too).
 - `get_colors` and `get_reward_points` tolerate responses that are not plain
   JSON:API lists; an unrecognised shape fails with top-level keys only.
-
-## [Unreleased]
-
-### Added
-
-- **Live test suite** (`npm run test:live`, development only). Real tools against a
-  real frame, to catch drift in Skylight's undocumented API that mocked tests
-  cannot see. Off unless `SKYLIGHT_LIVE=1`, never part of `npm test` or CI, and
-  the harness refuses `send_message`, `update_message` and `delete_message`. One suite per file in
-  `tests/live/`, filterable by tag. First suites: read smoke checks,
-  response-shape contract checks, write guards and a meal
-  create/rename/move/delete round trip with guaranteed cleanup. A normal-suite
-  test checks that every live file is gated.
 
 ## [1.6.0] - 2026-10-30
 
