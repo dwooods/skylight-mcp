@@ -68,10 +68,10 @@ export async function runAuthCommand(args: readonly string[], overrides: Partial
       case "login": {
         const { loginUrl, pending } = beginBrowserLogin(deps.now());
         await deps.savePending(pending);
-        deps.out("1. Open this URL in your browser and sign in to Skylight:\n");
+        deps.out("1. Open this URL in your browser and sign in to Skylight\n   (Windows Terminal: hold Ctrl and click it; otherwise copy it into your browser):\n");
         deps.out(`   ${loginUrl}\n`);
         deps.out("2. Skylight bounces the browser through https://ourskylight.com/welcome?code=... too fast");
-        deps.out("   to copy. Get it from browser history: Cmd-Y (Mac) / Ctrl-H, search \"welcome?code\",");
+        deps.out("   to copy. Get it from browser history: Cmd-Y (Mac) / Ctrl-H (PC), search \"welcome?code\",");
         deps.out("   right-click the newest Skylight result, Copy link address.\n");
         deps.out("3. Run the same command you just ran, with `complete` instead of `login`,");
         deps.out(`   and paste the URL at the prompt. This login expires in ${PENDING_LOGIN_TTL_MS / 60_000} minutes.`);

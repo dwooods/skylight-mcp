@@ -65,10 +65,11 @@ $env:SKYLIGHT_TIMEZONE="America/New_York"
 npx -y @davidwoods/skylight-mcp auth login
 ```
 
-This prints a Skylight sign-in URL. Open it in your browser and sign in. The
+This prints a Skylight sign-in URL. Open it in your browser and sign in (in Windows
+Terminal, hold Ctrl and click the URL). The
 browser bounces through `https://ourskylight.com/welcome?code=...` and on to
 the Skylight home page too fast to copy. Get it from your browser history:
-`Cmd-Y` (Mac) / `Ctrl-H`, search `welcome?code`, right-click the newest
+`Cmd-Y` (Mac) / `Ctrl-H` (PC), search `welcome?code`, right-click the newest
 Skylight result, Copy link address. Then:
 
 ```bash
