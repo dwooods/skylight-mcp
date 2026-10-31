@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-10-31
+
 ### Changed
 - `delete_chore` refuses occurrence ids of recurring chores and routines (like `12345-2026-11-03-0600`) and points to the app, because the delete scope ("this and future" vs "all in series") is not captured. One-off chores are unaffected.
 
