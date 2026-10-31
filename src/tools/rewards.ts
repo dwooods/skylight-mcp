@@ -11,7 +11,7 @@ import {
   redeemReward,
   unredeemReward,
 } from "../api/endpoints/rewards.js";
-import { resolveProfile } from "../api/endpoints/categories.js";
+import { resolveProfile, getFamilyMembers } from "../api/endpoints/categories.js";
 import { formatErrorForMcp } from "../utils/errors.js";
 
 export function registerRewardTools(server: McpServer): void {
@@ -113,17 +113,20 @@ Use this to answer:
           };
         }
 
+        const members = await getFamilyMembers();
+        const nameOf = new Map(members.map((m) => [m.id, String(m.attributes.label ?? `profile ${m.id}`)]));
         const pointsList = points
           .map((point) => {
-            const parts = [`- Points (ID: ${point.id})`];
-
             const attrs = attributesOf(point);
+            const categoryId = attrs.category_id != null ? String(attrs.category_id) : null;
+            const who = categoryId ? (nameOf.get(categoryId) ?? `profile ${categoryId}`) : "Unknown profile";
+            const parts = [`- ${who}`];
+            if (attrs.current_point_balance != null) parts.push(`  Current balance: ${attrs.current_point_balance}`);
+            if (attrs.lifetime_points_earned != null) parts.push(`  Lifetime earned: ${attrs.lifetime_points_earned}`);
             for (const [key, value] of Object.entries(attrs)) {
-              if (value !== null && value !== undefined) {
-                parts.push(`  ${key}: ${value}`);
-              }
+              if (["category_id", "current_point_balance", "lifetime_points_earned"].includes(key)) continue;
+              if (value !== null && value !== undefined) parts.push(`  ${key}: ${value}`);
             }
-
             return parts.join("\n");
           })
           .join("\n\n");

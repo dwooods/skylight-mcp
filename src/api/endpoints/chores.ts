@@ -178,3 +178,60 @@ export async function deleteChore(choreId: string): Promise<void> {
     method: "DELETE",
   });
 }
+
+/** A recurring-chore occurrence id: `{series id}-{YYYY-MM-DD}-{HHMM}`. */
+const OCCURRENCE_ID = /^(\d+)-(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})$/;
+
+export interface ChoreOccurrence {
+  seriesId: string;
+  instanceDate: string;
+  instanceTime: string;
+}
+
+/** Split an occurrence id from get_chores into the pieces the completions endpoint wants. Null for any other id (one-off chores, junk). */
+export function parseOccurrenceId(id: string): ChoreOccurrence | null {
+  const m = OCCURRENCE_ID.exec(id);
+  if (!m) return null;
+  return { seriesId: m[1], instanceDate: m[2], instanceTime: `${m[3]}:${m[4]}` };
+}
+
+export interface CompletionResult {
+  summary: string | null;
+  status: string | null;
+  /** Points balance after the change, when Skylight reports it. */
+  pointsBalance: number | null;
+  pointsLifetime: number | null;
+  currentStreak: number | null;
+  longestStreak: number | null;
+}
+
+/**
+ * Mark one occurrence of a recurring chore (routine) complete or pending.
+ * Verified live: the series id goes in the path, the occurrence date/time in the body.
+ */
+export async function completeChoreOccurrence(
+  occurrence: ChoreOccurrence,
+  complete: boolean,
+  completedOn: string
+): Promise<CompletionResult> {
+  const client = getClient();
+  const body: Record<string, unknown> = complete
+    ? { status: "complete", instance_date: occurrence.instanceDate, instance_time: occurrence.instanceTime, completed_on: completedOn }
+    : { status: "pending", instance_date: occurrence.instanceDate, instance_time: occurrence.instanceTime };
+
+  const res = await client.request<{
+    data?: { attributes?: { summary?: string; status?: string } };
+    meta?: { reward_points?: { current_point_balance?: number; lifetime_points_earned?: number } };
+    included?: Array<{ type?: string; attributes?: { current_streak?: number; longest_streak?: number } }>;
+  }>(`/api/frames/{frameId}/chores/${occurrence.seriesId}/completions`, { method: "PUT", body });
+
+  const tracker = res.included?.find((i) => i.type === "habit_tracker");
+  return {
+    summary: res.data?.attributes?.summary ?? null,
+    status: res.data?.attributes?.status ?? null,
+    pointsBalance: res.meta?.reward_points?.current_point_balance ?? null,
+    pointsLifetime: res.meta?.reward_points?.lifetime_points_earned ?? null,
+    currentStreak: tracker?.attributes?.current_streak ?? null,
+    longestStreak: tracker?.attributes?.longest_streak ?? null,
+  };
+}
