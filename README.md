@@ -34,6 +34,17 @@ what the hosted server leaves out.
 You need Node 20+, a Skylight account, and an MCP client (Claude desktop, Claude
 Code, or any other). Nothing to clone or build.
 
+**Do I need the hosted server?** Probably not. The steps below give you the
+*local* server: it runs on your own computer while your MCP client is open and
+exposes every tool. The *hosted* server (a Cloudflare Worker) is optional. You
+only need it if Claude Duet or Claude on another device has to reach Skylight
+when this computer is off. It means cloning the repo, a free Cloudflare
+account, `npx wrangler login`, `npm run worker:setup`, and a second sign-in,
+and it exposes only read and write tools plus `delete_message`. Do the local
+setup first; see
+[Hosted server (Claude Duet, Claude on other devices)](#hosted-server-claude-duet-claude-on-other-devices)
+if you need it later.
+
 ### 1. Find your frame ID and timezone
 
 Sign in to the Skylight web app at https://ourskylight.com. Your frame ID is the
