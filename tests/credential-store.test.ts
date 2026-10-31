@@ -12,6 +12,13 @@ import {
 } from "../src/api/credential-store.js";
 import type { StoredCredential } from "../src/api/oauth.js";
 
+// Windows ignores Unix permission bits (stat reports 0o666 / 0o777), so the mode checks
+// only mean something on POSIX. The Windows file store is documented as unencrypted.
+async function expectMode(target: string, mode: number): Promise<void> {
+  if (process.platform === "win32") return;
+  expect((await stat(target)).mode & 0o777).toBe(mode);
+}
+
 const credential: StoredCredential = {
   version: 1,
   type: "oauth",
@@ -62,8 +69,8 @@ describe("file credential store", () => {
     expect(await store.read()).toBeNull();
     await store.write(credential);
     expect(await store.read()).toEqual(credential);
-    expect((await stat(path.join(dir, "cfg", "credential.json"))).mode & 0o777).toBe(0o600);
-    expect((await stat(path.join(dir, "cfg"))).mode & 0o777).toBe(0o700);
+    await expectMode(path.join(dir, "cfg", "credential.json"), 0o600);
+    await expectMode(path.join(dir, "cfg"), 0o700);
     expect(await store.delete()).toBe(true);
     expect(await store.delete()).toBe(false);
   });
@@ -93,7 +100,7 @@ describe("keychain credential store", () => {
     expect(onDisk).not.toContain("SECRET");
     expect(onDisk).not.toContain("test-access");
     expect(await store.read()).toEqual(credential);
-    expect((await stat(path.join(dir, "credential.enc.json"))).mode & 0o777).toBe(0o600);
+    await expectMode(path.join(dir, "credential.enc.json"), 0o600);
   });
 
   it("passes the key on stdin, not in argv", async () => {
@@ -156,7 +163,7 @@ describe("pending login file", () => {
 
   it("is single use and 0600", async () => {
     await savePendingLogin(pending, dir);
-    expect((await stat(path.join(dir, "pending-login.json"))).mode & 0o777).toBe(0o600);
+    await expectMode(path.join(dir, "pending-login.json"), 0o600);
     expect(await takePendingLogin(dir)).toEqual(pending);
     expect(await takePendingLogin(dir)).toBeNull();
   });

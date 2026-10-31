@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The credential-store tests asserted Unix file modes (0600/0700), which Windows does not report, so
+  `vitest run` and therefore `npm publish` failed on any Windows clone. The mode checks now run on
+  POSIX only; a deliberately loosened mode still fails them there. Found when publishing from Windows.
 - `doctor` always failed its Skylight API check with "client has not been initialized": the
   real check used the process-wide client that only the server's startup sets up, and the tests
   replaced the check with a mock. It now builds its own client. Found on the first Windows run;
