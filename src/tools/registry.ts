@@ -43,6 +43,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   create_chore: "write",
   update_chore: "write",
   complete_chore: "write",
+  create_routine: "write",
   delete_chore: "destructive",
   // lists
   get_lists: "read",

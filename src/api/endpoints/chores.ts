@@ -235,3 +235,98 @@ export async function completeChoreOccurrence(
     longestStreak: tracker?.attributes?.longest_streak ?? null,
   };
 }
+
+export type DeleteScope = "future" | "all";
+
+/**
+ * Delete a recurring chore or routine. The app sends `DELETE /chores/{occurrence id}?apply_to=future|all`
+ * (captured live; 200 with an empty body). "future" is "this and future tasks", "all" is the whole series.
+ */
+export async function deleteChoreOccurrence(occurrenceId: string, scope: DeleteScope): Promise<void> {
+  const client = getClient();
+  await client.request(`/api/frames/{frameId}/chores/${occurrenceId}`, {
+    method: "DELETE",
+    params: { apply_to: scope },
+  });
+}
+
+export type TimeOfDay = "morning" | "afternoon" | "evening";
+export type WeekDay = "MO" | "TU" | "WE" | "TH" | "FR" | "SA" | "SU";
+
+export const WEEK_DAYS: readonly WeekDay[] = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
+/** The web app's "In the" choices: Morning 6, Afternoon 14, Evening 20 (all captured live). */
+export const TIME_OF_DAY_HOUR: Record<TimeOfDay, number> = { morning: 6, afternoon: 14, evening: 20 };
+
+/** A weekly routine rule exactly as the web app writes it. Only the weekly shape has been captured. */
+export function buildWeeklyRule(days: readonly WeekDay[], timeOfDay: TimeOfDay): string {
+  const ordered = WEEK_DAYS.filter((d) => days.includes(d));
+  return `RRULE:FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYHOUR=${TIME_OF_DAY_HOUR[timeOfDay]};BYDAY=${ordered.join(",")}`;
+}
+
+export interface ChoreEditResult {
+  /** Skylight re-keys a chore on every edit: this is the id to use from now on. */
+  newId: string | null;
+  summary: string | null;
+  recurrenceSet: string[] | null;
+}
+
+/**
+ * Edit a recurring chore or routine. The web app sends a flat body (not JSON:API) to
+ * `PUT /chores/{occurrence id}`; both a rename (`{summary}`) and a schedule change
+ * (`{recurrence_set}`) were captured live, and each returned a new series id.
+ */
+export async function updateChoreOccurrence(
+  occurrenceId: string,
+  changes: { summary?: string; recurrenceSet?: string[] }
+): Promise<ChoreEditResult> {
+  const client = getClient();
+  const body: Record<string, unknown> = {};
+  if (changes.summary !== undefined) body.summary = changes.summary;
+  if (changes.recurrenceSet !== undefined) body.recurrence_set = changes.recurrenceSet;
+  const res = await client.request<{ data?: { id?: string; attributes?: { summary?: string; recurrence_set?: string[] } } }>(
+    `/api/frames/{frameId}/chores/${occurrenceId}`,
+    { method: "PUT", body }
+  );
+  return {
+    newId: res.data?.id ?? null,
+    summary: res.data?.attributes?.summary ?? null,
+    recurrenceSet: res.data?.attributes?.recurrence_set ?? null,
+  };
+}
+
+export interface CreateRoutineOptions {
+  summary: string;
+  start: string;
+  categoryIds: string[];
+  recurrenceSet: string[];
+  trackHabit: boolean;
+  rewardPoints: number | null;
+  emojiIcon: string | null;
+}
+
+/** Create a routine for one or more profiles: `POST /chores/create_multiple` (captured live), one chore per profile. */
+export async function createRoutine(options: CreateRoutineOptions): Promise<Array<{ id: string; summary: string }>> {
+  const client = getClient();
+  const res = await client.request<{ data?: Array<{ id: string; attributes?: { summary?: string } }> }>(
+    "/api/frames/{frameId}/chores/create_multiple",
+    {
+      method: "POST",
+      body: {
+        summary: options.summary,
+        start: options.start,
+        category_ids: options.categoryIds,
+        routine: true,
+        track_habit: options.trackHabit,
+        up_for_grabs: false,
+        emoji_icon: options.emojiIcon,
+        reward_points: options.rewardPoints,
+        recurrence_set: options.recurrenceSet,
+        recurring_until: null,
+        renewal_interval: null,
+        renewal_unit: null,
+        start_time: null,
+      },
+    }
+  );
+  return (res.data ?? []).map((c) => ({ id: c.id, summary: c.attributes?.summary ?? options.summary }));
+}
