@@ -72,7 +72,8 @@ export async function runAuthCommand(args: readonly string[], overrides: Partial
         deps.out(`   ${loginUrl}\n`);
         deps.out("2. Skylight bounces the browser through https://ourskylight.com/welcome?code=... too fast");
         deps.out("   to copy. Get it from browser history: Cmd-Y (Mac) / Ctrl-H (PC), search \"welcome?code\",");
-        deps.out("   right-click the newest Skylight result, Copy link address.\n");
+        deps.out("   right-click the Skylight result dated today (top of the list; older ones are earlier");
+        deps.out("   sign-ins and will not work), Copy link address.\n");
         deps.out("3. Run the same command you just ran, with `complete` instead of `login`,");
         deps.out(`   and paste the URL at the prompt. This login expires in ${PENDING_LOGIN_TTL_MS / 60_000} minutes.`);
         return 0;
