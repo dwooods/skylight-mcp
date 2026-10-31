@@ -91,3 +91,37 @@ describe("skylight-mcp doctor", () => {
     expect(r.text).toContain("too old");
   });
 });
+
+// The mocked tests above replace the API check, which is how the real one shipped broken.
+// This runs the real check against a stubbed network.
+import { afterEach, vi } from "vitest";
+import { makeApiCheck } from "../src/doctor.js";
+import type { StoredCredential } from "../src/api/oauth.js";
+
+describe("doctor's real API check", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("works without the process-wide client being initialised, and reports the frame timezone", async () => {
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        seen.push(String(url));
+        const body = String(url).includes("/plus_access") ? {} : { data: { id: "1", type: "frame", attributes: { time_zone: "America/Chicago" } } };
+        return new Response(JSON.stringify(body), { status: 200 });
+      })
+    );
+    const credential: StoredCredential = {
+      version: 1,
+      type: "oauth",
+      accessToken: "test-access-1",
+      refreshToken: "test-refresh-1",
+      fingerprint: "fp",
+      expiresAt: Date.now() + 3_600_000,
+    };
+    const memory = { name: "memory", read: async () => credential, write: async () => {}, delete: async () => true } as unknown as CredentialStore;
+    const check = makeApiCheck(memory, { frameId: "frame-1", authType: "bearer", timezone: "UTC" });
+    await expect(check()).resolves.toEqual({ timezone: "America/Chicago" });
+    expect(seen.some((u) => u.startsWith("https://app.ourskylight.com/api/frames/frame-1"))).toBe(true);
+  });
+});

@@ -4,8 +4,11 @@
  * account data; it reports "set" / "not set" and pass/fail.
  */
 
+import { SkylightClient } from "./api/client.js";
 import { defaultCredentialStore, type CredentialStore } from "./api/credential-store.js";
 import { getFrame } from "./api/endpoints/frames.js";
+import { loadConfig, type Config } from "./config.js";
+import { runWithContext } from "./context.js";
 
 export type Level = "ok" | "warn" | "fail";
 
@@ -18,17 +21,31 @@ export interface DoctorDeps {
   out: (line: string) => void;
 }
 
+/**
+ * The real Skylight check. It builds its own client from the doctor's store and
+ * runs the call inside a request context: the process-wide client is only set up
+ * by the server's startup, which doctor never runs. (A version that called
+ * getFrame() bare failed with "client has not been initialized" on every machine.)
+ */
+export function makeApiCheck(store: CredentialStore, config: Config): () => Promise<{ timezone?: string }> {
+  return async () => {
+    const client = new SkylightClient(config, store);
+    await client.initialize();
+    const frame = await runWithContext({ client, config }, () => getFrame());
+    const attrs = frame.attributes as Record<string, unknown>;
+    const tz = attrs.time_zone ?? attrs.timezone;
+    return { timezone: typeof tz === "string" ? tz : undefined };
+  };
+}
+
 function defaultDeps(): DoctorDeps {
+  const store = defaultCredentialStore();
   return {
     env: process.env,
     nodeVersion: process.versions.node,
-    store: defaultCredentialStore(),
-    checkApi: async () => {
-      const frame = await getFrame();
-      const attrs = frame.attributes as Record<string, unknown>;
-      const tz = attrs.time_zone ?? attrs.timezone;
-      return { timezone: typeof tz === "string" ? tz : undefined };
-    },
+    store,
+    // loadConfig() only runs when the API check does, after the frame ID has been validated.
+    checkApi: () => makeApiCheck(store, loadConfig())(),
     out: (line) => console.log(line),
   };
 }

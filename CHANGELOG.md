@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `doctor` always failed its Skylight API check with "client has not been initialized": the
+  real check used the process-wide client that only the server's startup sets up, and the tests
+  replaced the check with a mock. It now builds its own client. Found on the first Windows run;
+  not Windows-specific.
+- On Windows the sign-in message said "credential file (0600)". Windows ignores Unix modes, so
+  it now says the file is unencrypted and protected only by the Windows profile.
 - A completed chore is reported by Skylight as `complete`; the tools compared against `completed`.
   `get_chores` with `status: completed` found nothing and `pending` listed done chores, and
   `get_week_overview` showed done chores as `[ ]` and as overdue. Both values now count as done.
