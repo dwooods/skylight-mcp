@@ -386,7 +386,7 @@ Nothing here is hidden behind a flag. It is either unavailable from Skylight or 
 - **Messages**: sending to specific devices, scheduling, repeating, voice notes, and read-aloud (the option exists on `send_message` but was not tested live). Deleting works but the app has no delete button.
 - **Meals**: editing or deleting a repeating meal (it is refused, because the behaviour of changing one occurrence of a series was not captured), saving a meal to the recipe box from the edit form, and Skylight's own "Plan Meals" feature.
 - **Task box**: editing or completing tasks, and saving a routine template to it.
-- **Chores**: completing a one-off (non-recurring) chore, Skip, editing a routine or recurring chore (the app's edit call is not captured, so `update_chore` may not behave on a series), and deleting a recurring chore with a scope. The app asks "this and future" or "all in series" on delete; `delete_chore` has no scope option and its behaviour on a recurring chore is unverified, so treat it as one-off only. Un-completing a routine cannot reduce its `longest_streak`.
+- **Chores**: completing a one-off (non-recurring) chore, Skip, editing a routine or recurring chore (the app's edit call is not captured, so `update_chore` may not behave on a series), and deleting a recurring chore with a scope. The app asks "this and future" or "all in series" on delete; `delete_chore` has no scope option, so it refuses occurrence ids of recurring chores and routines; delete those in the app. Un-completing a routine cannot reduce its `longest_streak`.
 - **Profiles**: creating or editing them. Read-only.
 - **Settings, account, notifications, sleep schedule, device navigation**: none of these are exposed.
 - **Photos**: uploads and anything beyond listing albums.
