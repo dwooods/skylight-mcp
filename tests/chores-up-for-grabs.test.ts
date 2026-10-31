@@ -25,8 +25,8 @@ async function call(name: string, args: Record<string, unknown>): Promise<string
 
 const chores = {
   data: [
-    { id: "c1", type: "chore", attributes: { summary: "Wipe counters", status: "pending", start: "2026-11-03", start_time: null }, relationships: { category: { data: null } } },
-    { id: "c2", type: "chore", attributes: { summary: "Feed fish", status: "pending", start: "2026-11-03", start_time: null }, relationships: { category: { data: { type: "category", id: "k1" } } } },
+    { id: "c1", type: "chore", attributes: { summary: "Wipe counters", status: "pending", start: "2026-11-03", start_time: null, up_for_grabs: true }, relationships: { category: { data: null } } },
+    { id: "c2", type: "chore", attributes: { summary: "Feed fish", status: "pending", start: "2026-11-03", start_time: null, up_for_grabs: false }, relationships: { category: { data: { type: "category", id: "k1" } } } },
   ],
   included: [{ id: "k1", type: "category", attributes: { label: "Jordan", linked_to_profile: true } }],
 };

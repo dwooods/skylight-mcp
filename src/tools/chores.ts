@@ -104,7 +104,7 @@ Returns chores with their assignees, due dates, and completion status.`,
 
             if (assigneeName) {
               parts.push(`  Assigned to: ${assigneeName}`);
-            } else if (!categoryId) {
+            } else if (attrs.up_for_grabs) {
               parts.push(`  Assigned to: nobody (up for grabs)`);
             }
 

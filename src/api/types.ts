@@ -45,6 +45,7 @@ export interface ChoreAttributes {
   emoji_icon: string | null;
   routine: boolean | null;
   position: number | null;
+  up_for_grabs?: boolean | null;
 }
 
 export interface ChoreRelationships {
