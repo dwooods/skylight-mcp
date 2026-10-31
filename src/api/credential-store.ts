@@ -84,7 +84,8 @@ export function createFileCredentialStore(options: { directory?: string } = {}):
   const file = path.join(directory, CREDENTIAL_FILE);
 
   return {
-    name: "credential file (0600)",
+    // Windows ignores Unix modes, so don't claim 0600 there: say what actually protects the file.
+    name: process.platform === "win32" ? "credential file, unencrypted, protected only by your Windows profile" : "credential file (0600)",
     async read() {
       const raw = await readIfExists(file);
       if (raw === null) return null;
