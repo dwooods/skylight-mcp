@@ -11,6 +11,7 @@ import {
 } from "../api/endpoints/calendar.js";
 import { getTodayDate, parseDate, formatDateForDisplay } from "../utils/dates.js";
 import { formatErrorForMcp } from "../utils/errors.js";
+import { redactFeedUrl } from "../utils/redact.js";
 import { getConfig } from "../config.js";
 import { getCategories, resolveProfileIds } from "../api/endpoints/categories.js";
 import type { CalendarEventResource } from "../api/types.js";
@@ -170,7 +171,8 @@ Returns a list of connected calendar sources (Google, iCloud, etc.).`,
 
             for (const [key, value] of Object.entries(attrs)) {
               if (value !== null && value !== undefined) {
-                parts.push(`  ${key}: ${value}`);
+                // Feed URLs are bearer-like secrets; show only the host.
+                parts.push(`  ${key}: ${typeof value === "string" ? redactFeedUrl(value) : value}`);
               }
             }
 

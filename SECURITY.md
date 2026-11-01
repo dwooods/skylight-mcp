@@ -11,6 +11,10 @@ secrets and never commit them:
 - Your Skylight **frame ID** (identifies your household)
 - Anything captured from app traffic: HAR files, proxy dumps, bearer tokens,
   calendar IDs, or real family member names/emails
+- Calendar **feed addresses** (the `webcal://` or `.ics` links behind subscribed
+  calendars, such as a published iCloud calendar or a team schedule). Anyone
+  holding the link can read that calendar. `get_source_calendars` shows only the
+  host; do not paste the full address anywhere
 
 ## Where credentials belong
 

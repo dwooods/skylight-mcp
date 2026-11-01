@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.4] - 2026-10-31
+
+### Security
+- `get_source_calendars` no longer prints subscription feed addresses. Published iCloud calendars and league or team schedule feeds are private URLs that work like passwords, and the tool returned them in full to the assistant and its logs. Only the scheme and host are shown now (`webcal://host/... (feed address hidden)`), in every field. Label, kind, role and editable are unchanged.
+
 ### Added
 - `create_routine`: create a weekly routine (morning, afternoon or evening) for one or more profiles, via the web app's `create_multiple` call. Weekly schedules only.
 - `delete_chore` takes `scope`: `future` ("this and future tasks") or `all` ("all tasks in series"), sent as `apply_to`. Required for recurring chores and routines, which replaces the 1.8.3 refusal. It reads the chores back and reports whether the occurrence is gone.

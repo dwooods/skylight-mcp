@@ -435,7 +435,7 @@ Messages are the notes shown on the frame (Skylight's web app calls them "nudges
 | Tool | Effect | Description |
 |------|--------|-------------|
 | `get_calendar_events` | read | Events for a date range |
-| `get_source_calendars` | read | Connected calendar sources (Google, iCloud, etc.) |
+| `get_source_calendars` | read | Connected calendar sources (Google, iCloud, etc.), with each one's role and whether it is editable. Private feed addresses are hidden: only the host is shown |
 | `create_calendar_event` | write | Add an event. `profiles` assigns it to named family members. Local times are sent with the frame's UTC offset. |
 | `update_calendar_event` | write | Change an event, including who it is assigned to (`profiles`) |
 | `delete_calendar_event` | destructive | Delete an event. Local server only. |
