@@ -46,7 +46,7 @@ export async function runCalendarsCommand(args: readonly string[], overrides: Pa
     return 2;
   }
 
-  deps.out("Paste the calendar address (the link ending in .ics, or starting with webcal://).");
+  deps.out("Paste the calendar's subscription link (usually ends in .ics or starts with webcal://), then press Enter.");
   deps.out("Nothing is shown as you paste. Treat the address like a password.");
   let address = "";
   for (let attempt = 0; attempt < 3; attempt++) {

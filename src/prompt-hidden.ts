@@ -52,7 +52,7 @@ export async function promptHidden(
     // Nothing typed is shown, so a paste looks like it did nothing and gets repeated. A live
     // count (never the text) is the only sign that it landed.
     const showCount = () => {
-      if (raw) output.write(`\r\u001b[K${question}${value.length} characters (not shown)`);
+      if (raw) output.write(`\r\u001b[K${question}${value.length} characters (not shown). Press Enter to submit.`);
     };
     const onData = (chunk?: string) => {
       for (const ch of chunk ?? "") {

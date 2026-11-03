@@ -182,7 +182,7 @@ describe("promptHidden", () => {
     const written: string[] = [];
     const p = promptHidden("Address: ", { input, output: { write: (t) => written.push(t) } });
     input.emit(FEED.slice(0, 30));
-    expect(written.join("")).toContain("30 characters (not shown)");
+    expect(written.join("")).toContain("30 characters (not shown). Press Enter");
     input.emit(`${FEED.slice(30)}\r`);
     await p;
     for (const s of SECRETS) expect(written.join("")).not.toContain(s);
