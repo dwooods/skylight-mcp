@@ -5,7 +5,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { SkylightClient } from "../src/api/client.js";
 import { runWithContext } from "../src/context.js";
 import { registerTools } from "../src/tools/registry.js";
-import { addCalendarFeed, checkFeedUrl, scrubFeedText } from "../src/api/endpoints/source-calendars.js";
+import { addCalendarFeed, checkFeedUrl, readBackPolicy, scrubFeedText } from "../src/api/endpoints/source-calendars.js";
 import { runCalendarsCommand } from "../src/calendars-cli.js";
 import { PromptCancelled, promptHidden, type HiddenInput } from "../src/prompt-hidden.js";
 import { HOSTED_EFFECTS, HOSTED_DESTRUCTIVE_ALLOWLIST } from "../src/worker/mcp.js";
@@ -18,6 +18,7 @@ function inContext<T>(fn: () => Promise<T>): Promise<T> {
   return runWithContext({ client: new SkylightClient(config, null), config }, fn);
 }
 
+readBackPolicy.delayMs = 0;
 afterEach(() => vi.unstubAllGlobals());
 
 describe("checkFeedUrl", () => {
@@ -509,5 +510,83 @@ describe("get_source_calendars guidance", () => {
     expect(named.length).toBeGreaterThan(0);
     for (const n of named) expect(Object.keys(TOOL_EFFECTS)).toContain(n);
     expect(block).toContain("skylight-mcp calendars add");
+  });
+});
+
+describe("read-back tolerates Skylight's list lagging a write (seen live on a delete)", () => {
+  const cal = (id: string, label: string, cats: string[]) => ({
+    id,
+    type: "source_calendar_detail",
+    attributes: { label, kind: "webcal", source_id: FEED, default_for_new_events: false },
+    relationships: { categories: { data: cats.map((c) => ({ id: c, type: "category_detail" })) } },
+  });
+  const CATS = [
+    { id: "10", type: "category", attributes: { label: "Ben", linked_to_profile: true } },
+    { id: "99", type: "category", attributes: { label: "Lbl", linked_to_profile: false } },
+  ];
+
+  async function callTool(name: string, args: Record<string, unknown>): Promise<string> {
+    const server = new McpServer({ name: "skylight", version: "t" });
+    registerTools(server, { hasPlus: true, photos: false });
+    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    await server.connect(transport);
+    const req = new Request("https://w.example/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+    });
+    const res = await runWithContext({ client: new SkylightClient(config, null), config }, () => transport.handleRequest(req));
+    const json = (await res.json()) as { result?: { content: Array<{ text: string }> }; error?: { message: string } };
+    return json.result ? json.result.content.map((c) => c.text).join("\n") : `ERROR ${json.error?.message}`;
+  }
+
+  /** After the write, the list shows the OLD state for `stale` reads, then the new state. */
+  function stub(stale: number, before: ReturnType<typeof cal>, after: ReturnType<typeof cal> | null): { gets: () => number } {
+    let wrote = false;
+    let staleLeft = stale;
+    let gets = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        if (init.method === "PUT" || init.method === "DELETE") {
+          wrote = true;
+          return new Response(JSON.stringify({ success: true, data: before }), { status: 200 });
+        }
+        if (String(url).endsWith("/categories")) return new Response(JSON.stringify({ data: CATS }), { status: 200 });
+        gets++;
+        let current: ReturnType<typeof cal> | null = before;
+        if (wrote) {
+          if (staleLeft > 0) staleLeft--;
+          else current = after;
+        }
+        return new Response(JSON.stringify({ data: current ? [current] : [] }), { status: 200 });
+      })
+    );
+    return { gets: () => gets };
+  }
+
+  it("delete: succeeds when the list catches up on a later read", async () => {
+    const s = stub(2, cal("2", "Team", ["99"]), null);
+    expect(await callTool("delete_source_calendar", { calendarId: "2", confirm: true })).toContain("Confirmed gone");
+    expect(s.gets()).toBeGreaterThan(3);
+  });
+
+  it("delete: still an error when the calendar never leaves the list", async () => {
+    stub(99, cal("2", "Team", ["99"]), null);
+    expect(await callTool("delete_source_calendar", { calendarId: "2", confirm: true })).toMatch(/still listed/);
+  });
+
+  it("rename: succeeds when the new name appears on a later read, errors when it never does", async () => {
+    stub(2, cal("2", "Old", ["99"]), cal("2", "New", ["99"]));
+    expect(await callTool("rename_source_calendar", { calendarId: "2", name: "New", confirm: true })).toContain("Confirmed by reading it back");
+    stub(99, cal("2", "Old", ["99"]), cal("2", "New", ["99"]));
+    expect(await callTool("rename_source_calendar", { calendarId: "2", name: "New", confirm: true })).toMatch(/still called/);
+  });
+
+  it("link: succeeds when the links appear on a later read, errors when they never do", async () => {
+    stub(2, cal("2", "T", ["99"]), cal("2", "T", ["99", "10"]));
+    expect(await callTool("update_source_calendar_profiles", { calendarId: "2", link: ["Ben"], confirm: true })).toContain("Confirmed by reading it back");
+    stub(99, cal("2", "T", ["99"]), cal("2", "T", ["99", "10"]));
+    expect(await callTool("update_source_calendar_profiles", { calendarId: "2", link: ["Ben"], confirm: true })).toMatch(/not what was asked/);
   });
 });

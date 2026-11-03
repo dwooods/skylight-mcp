@@ -124,3 +124,19 @@ export async function renameSourceCalendar(id: string, name: string): Promise<vo
   if (!check.ok) throw new Error(check.reason);
   await getClient().request(`/api/frames/{frameId}/source_calendars/${id}`, { method: "PUT", body: { label: check.name } });
 }
+
+/**
+ * Skylight answers a write before its own list reflects it (seen live: a delete returned 200,
+ * the immediate read-back still listed the calendar, and a moment later it was gone). So a
+ * read-back re-checks a few times before it calls the write a failure.
+ */
+export const readBackPolicy = { attempts: 4, delayMs: 500 };
+
+export async function readBackUntil<T>(read: () => Promise<T>, done: (value: T) => boolean): Promise<{ ok: boolean; value: T }> {
+  let value = await read();
+  for (let i = 1; i < readBackPolicy.attempts && !done(value); i++) {
+    await new Promise((resolve) => setTimeout(resolve, readBackPolicy.delayMs));
+    value = await read();
+  }
+  return { ok: done(value), value };
+}

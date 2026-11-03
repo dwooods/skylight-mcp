@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.10.0] - 2026-11-03
 
 ### Added
+- The new write tools re-check their read-back a few times before calling a write a failure, because Skylight's list can lag a write by a moment (a delete returned success and the immediate list still showed the calendar).
 - `get_source_calendars` now explains Skylight's Sync Calendar options (Calendar URL, Google, Outlook, iCloud, Cozi, TeamSnap, US Holidays, Individual Events) and which of them this server can add or manage; the README has the same table. A test checks every tool the guidance names exists.
 - `rename_source_calendar`: rename a subscribed feed. Write tool, preview-first with `confirm: true`, also on the hosted server. Refuses a blank name or one that looks like a web address, and checks after the change that the name changed and the linked profiles did not.
 - `update_source_calendar_profiles`: link or unlink a subscribed calendar feed to family profiles (the Edit Calendar "Link profiles" checkboxes). Write tool, preview-first with `confirm: true`, also on the hosted server. Skylight replaces the whole set on each save, so the tool sends the full wanted set to keep the label, reads it back, and refuses to leave a calendar with nothing linked.

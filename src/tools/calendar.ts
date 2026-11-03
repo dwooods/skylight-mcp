@@ -12,7 +12,7 @@ import {
 import { getTodayDate, parseDate, formatDateForDisplay } from "../utils/dates.js";
 import { formatErrorForMcp } from "../utils/errors.js";
 import { formatAttribute, redactFeedUrl } from "../utils/redact.js";
-import { checkCalendarName, removeSourceCalendar, renameSourceCalendar, setSourceCalendarCategories } from "../api/endpoints/source-calendars.js";
+import { checkCalendarName, readBackUntil, removeSourceCalendar, renameSourceCalendar, setSourceCalendarCategories } from "../api/endpoints/source-calendars.js";
 import { getConfig } from "../config.js";
 import { getCategories, resolveProfileIds } from "../api/endpoints/categories.js";
 import type { CalendarEventResource } from "../api/types.js";
@@ -186,8 +186,8 @@ get_source_calendars. Feed addresses are never shown, only the host.`,
           };
         }
         await removeSourceCalendar(id);
-        const after = await getSourceCalendars();
-        if (after.some((c) => String(c.id) === id)) {
+        const gone = await readBackUntil(getSourceCalendars, (list) => !list.some((c) => String(c.id) === id));
+        if (!gone.ok) {
           throw new Error(`Skylight accepted the remove call but "${label}" is still listed. Do not assume it is gone; check the app.`);
         }
         return { content: [{ type: "text" as const, text: `Removed "${label}" (${host}). Confirmed gone from the synced calendars list.` }] };
@@ -265,9 +265,15 @@ from get_source_calendars. Feed addresses are never shown.`,
           };
         }
         await setSourceCalendarCategories(id, wanted);
-        const after = (await getSourceCalendars()).find((c) => String(c.id) === id);
-        const afterIds = (after?.relationships?.categories?.data ?? []).map((c) => String(c.id));
-        if (afterIds.length !== wanted.length || !wanted.every((c) => afterIds.includes(c))) {
+        const idsOf = (list: Awaited<ReturnType<typeof getSourceCalendars>>): string[] =>
+          (list.find((c) => String(c.id) === id)?.relationships?.categories?.data ?? []).map((c) => String(c.id));
+        const matches = (list: Awaited<ReturnType<typeof getSourceCalendars>>): boolean => {
+          const got = idsOf(list);
+          return got.length === wanted.length && wanted.every((c) => got.includes(c));
+        };
+        const settled = await readBackUntil(getSourceCalendars, matches);
+        const afterIds = idsOf(settled.value);
+        if (!settled.ok) {
           throw new Error(`Skylight accepted the change but "${label}" now shows ${describe(afterIds)}, not what was asked. Check the app.`);
         }
         return { content: [{ type: "text" as const, text: `Updated "${label}". Now ${describe(afterIds)}. Confirmed by reading it back.` }] };
@@ -321,9 +327,12 @@ Get the ID from get_source_calendars. Feed addresses are never shown.`,
         }
         const linkedBefore = (found.relationships?.categories?.data ?? []).map((c) => String(c.id)).sort();
         await renameSourceCalendar(id, check.name);
-        const after = (await getSourceCalendars()).find((c) => String(c.id) === id);
-        const afterName = (after?.attributes as Record<string, unknown> | undefined)?.label;
-        if (afterName !== check.name) {
+        const nameIn = (list: Awaited<ReturnType<typeof getSourceCalendars>>): unknown =>
+          (list.find((c) => String(c.id) === id)?.attributes as Record<string, unknown> | undefined)?.label;
+        const renamed = await readBackUntil(getSourceCalendars, (list) => nameIn(list) === check.name);
+        const after = renamed.value.find((c) => String(c.id) === id);
+        const afterName = nameIn(renamed.value);
+        if (!renamed.ok) {
           throw new Error(`Skylight accepted the rename but the calendar is still called "${String(afterName)}". Check the app.`);
         }
         const linkedAfter = (after?.relationships?.categories?.data ?? []).map((c) => String(c.id)).sort();
