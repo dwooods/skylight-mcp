@@ -267,3 +267,124 @@ describe("delete_source_calendar", () => {
     expect(await call({ calendarId: "2", confirm: true }, { hosted: true })).toMatch(/not found/i);
   });
 });
+
+describe("update_source_calendar_profiles", () => {
+  const CATS = [
+    { id: "10", type: "category", attributes: { label: "Ben", linked_to_profile: true } },
+    { id: "11", type: "category", attributes: { label: "Alison", linked_to_profile: true } },
+    { id: "12", type: "category", attributes: { label: "Dave", linked_to_profile: true } },
+    { id: "99", type: "category", attributes: { label: "Team Schedule", linked_to_profile: false } },
+  ];
+  const cal = (id: string, kind: string, cats: string[]) => ({
+    id,
+    type: "source_calendar_detail",
+    attributes: { label: id === "2" ? "Team" : "Other", kind, source_id: kind === "webcal" ? FEED : "o@example.com", default_for_new_events: false },
+    relationships: { categories: { data: cats.map((c) => ({ id: c, type: "category_detail" })) } },
+  });
+
+  async function call(args: Record<string, unknown>, opts: { hosted?: boolean; tool?: string } = {}): Promise<string> {
+    const server = new McpServer({ name: "skylight", version: "t" });
+    registerTools(server, opts.hosted ? { hasPlus: true, effects: HOSTED_EFFECTS, include: HOSTED_DESTRUCTIVE_ALLOWLIST, photos: false } : { hasPlus: true, photos: false });
+    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    await server.connect(transport);
+    const req = new Request("https://w.example/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "update_source_calendar_profiles", arguments: args } }),
+    });
+    const res = await runWithContext({ client: new SkylightClient(config, null), config }, () => transport.handleRequest(req));
+    const json = (await res.json()) as { result?: { content: Array<{ text: string }> }; error?: { message: string } };
+    return json.result ? json.result.content.map((c) => c.text).join("\n") : `ERROR ${json.error?.message}`;
+  }
+
+  /** A stateful fake: PUT replaces the calendar's categories, unless `ignorePut` simulates a silent no-op. */
+  function stub(start: string[], opts: { ignorePut?: boolean } = {}): Array<{ method: string; url: string; body?: unknown }> {
+    const seen: Array<{ method: string; url: string; body?: unknown }> = [];
+    let cats = start;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        const u = String(url);
+        seen.push({ method: String(init.method), url: u, body: init.body ? JSON.parse(init.body as string) : undefined });
+        if (init.method === "PUT") {
+          if (!opts.ignorePut) cats = (JSON.parse(init.body as string).categorizations as Array<{ category_id: string }>).map((c) => c.category_id);
+          return new Response(JSON.stringify({ data: cal("2", "webcal", cats) }), { status: 200 });
+        }
+        if (u.endsWith("/categories")) return new Response(JSON.stringify({ data: CATS }), { status: 200 });
+        return new Response(JSON.stringify({ data: [cal("2", "webcal", cats), cal("3", "gmail", ["11"])] }), { status: 200 });
+      })
+    );
+    return seen;
+  }
+
+  const puts = (seen: Array<{ method: string }>) => seen.filter((c) => c.method === "PUT");
+
+  it("previews before and after without writing, and never shows the address", async () => {
+    const { clearCategoriesCache } = await import("../src/api/endpoints/categories.js");
+    clearCategoriesCache();
+    const seen = stub(["99"]);
+    const text = await call({ calendarId: "2", link: ["Ben"] });
+    expect(text).toContain("NOT CHANGED");
+    expect(text).toMatch(/Now:\s+profiles: none; labels kept: Team Schedule/);
+    expect(text).toMatch(/After: profiles: Ben; labels kept: Team Schedule/);
+    for (const s of SECRETS) expect(text).not.toContain(s);
+    expect(puts(seen)).toHaveLength(0);
+  });
+
+  it("sends the full set so the label survives, to the captured path, and reads back", async () => {
+    const { clearCategoriesCache } = await import("../src/api/endpoints/categories.js");
+    clearCategoriesCache();
+    const seen = stub(["99"]);
+    const text = await call({ calendarId: "2", link: ["ben"], confirm: true });
+    expect(text).toContain("Confirmed by reading it back");
+    for (const s of SECRETS) expect(text).not.toContain(s);
+    expect(puts(seen)).toHaveLength(1);
+    expect(puts(seen)[0]!.url).toBe("https://app.ourskylight.com/api/frames/frame-1/source_calendars/2/source_calendar_categorizations");
+    expect((puts(seen)[0]!.body as { categorizations: unknown }).categorizations).toEqual([{ category_id: "99" }, { category_id: "10" }]);
+  });
+
+  it("unlinks only the named profile and keeps the others and the label", async () => {
+    const { clearCategoriesCache } = await import("../src/api/endpoints/categories.js");
+    clearCategoriesCache();
+    const seen = stub(["99", "10", "11"]);
+    const text = await call({ calendarId: "2", unlink: ["Ben"], confirm: true });
+    expect(text).toContain("Updated");
+    expect((puts(seen)[0]!.body as { categorizations: unknown }).categorizations).toEqual([{ category_id: "99" }, { category_id: "11" }]);
+  });
+
+  it("does not trust the write: a change Skylight did not apply is an error", async () => {
+    const { clearCategoriesCache } = await import("../src/api/endpoints/categories.js");
+    clearCategoriesCache();
+    stub(["99"], { ignorePut: true });
+    expect(await call({ calendarId: "2", link: ["Ben"], confirm: true })).toMatch(/not what was asked/);
+  });
+
+  it("changes nothing when already as asked, when the name is unknown, or when it would empty the calendar", async () => {
+    const { clearCategoriesCache } = await import("../src/api/endpoints/categories.js");
+    clearCategoriesCache();
+    const seen = stub(["10"]);
+    expect(await call({ calendarId: "2", link: ["Ben"], confirm: true })).toMatch(/No change needed/);
+    expect(await call({ calendarId: "2", link: ["Benjamin"], confirm: true })).toMatch(/No profile called/);
+    expect(await call({ calendarId: "2", unlink: ["Ben"], confirm: true })).toMatch(/no profile or label at all/);
+    expect(await call({ calendarId: "2", link: ["Ben"], unlink: ["Ben"], confirm: true })).toMatch(/same profile/);
+    expect(await call({ calendarId: "2", confirm: true })).toMatch(/link or unlink/);
+    expect(puts(seen)).toHaveLength(0);
+  });
+
+  it("refuses account calendars and bad IDs, writing nothing", async () => {
+    const { clearCategoriesCache } = await import("../src/api/endpoints/categories.js");
+    clearCategoriesCache();
+    const seen = stub(["99"]);
+    expect(await call({ calendarId: "3", link: ["Ben"], confirm: true })).toMatch(/account calendar/);
+    expect(await call({ calendarId: "../x", link: ["Ben"], confirm: true })).toMatch(/numeric/);
+    expect(await call({ calendarId: "77", link: ["Ben"], confirm: true })).toMatch(/No synced calendar/);
+    expect(puts(seen)).toHaveLength(0);
+  });
+
+  it("is available on the hosted server (a write, not destructive)", async () => {
+    const { clearCategoriesCache } = await import("../src/api/endpoints/categories.js");
+    clearCategoriesCache();
+    stub(["99"]);
+    expect(await call({ calendarId: "2", link: ["Ben"] }, { hosted: true })).toContain("NOT CHANGED");
+  });
+});

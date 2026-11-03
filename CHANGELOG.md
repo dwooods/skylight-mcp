@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.10.0] - 2026-11-03
 
 ### Added
+- `update_source_calendar_profiles`: link or unlink a subscribed calendar feed to family profiles (the Edit Calendar "Link profiles" checkboxes). Write tool, preview-first with `confirm: true`, also on the hosted server. Skylight replaces the whole set on each save, so the tool sends the full wanted set to keep the label, reads it back, and refuses to leave a calendar with nothing linked.
 - `skylight-mcp calendars add`: sync a team, school or league calendar feed. The address is typed into a hidden prompt and is refused on the command line, so it never reaches shell history, an MCP tool argument, a chat transcript or a log. Only the calendar's name and the feed host are printed. A feed that is already synced is reported as such, not as a failure.
 - `delete_source_calendar` (destructive, local server only): stop syncing a subscribed feed. Preview first, then `confirm: true`; reads the list back to confirm it is gone. Account calendars (Google and others) and the calendar new events are saved to are refused.
 

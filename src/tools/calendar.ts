@@ -12,7 +12,7 @@ import {
 import { getTodayDate, parseDate, formatDateForDisplay } from "../utils/dates.js";
 import { formatErrorForMcp } from "../utils/errors.js";
 import { formatAttribute, redactFeedUrl } from "../utils/redact.js";
-import { removeSourceCalendar } from "../api/endpoints/source-calendars.js";
+import { removeSourceCalendar, setSourceCalendarCategories } from "../api/endpoints/source-calendars.js";
 import { getConfig } from "../config.js";
 import { getCategories, resolveProfileIds } from "../api/endpoints/categories.js";
 import type { CalendarEventResource } from "../api/types.js";
@@ -191,6 +191,86 @@ get_source_calendars. Feed addresses are never shown, only the host.`,
           throw new Error(`Skylight accepted the remove call but "${label}" is still listed. Do not assume it is gone; check the app.`);
         }
         return { content: [{ type: "text" as const, text: `Removed "${label}" (${host}). Confirmed gone from the synced calendars list.` }] };
+      } catch (error) {
+        return { content: [{ type: "text" as const, text: formatErrorForMcp(error) }], isError: true };
+      }
+    }
+  );
+
+  // update_source_calendar_profiles tool
+  server.tool(
+    "update_source_calendar_profiles",
+    `Link a subscribed calendar feed (a team, school or league schedule) to family profiles, or unlink it.
+This is the "Link profiles" checkboxes on the app's Edit Calendar screen: events from the feed
+then show under those profiles' colors.
+
+Two-step. Without confirm it previews who is linked now and who would be. Show the user and
+get a clear yes before calling with confirm: true; the change shows on the family's devices.
+Profile names are matched exactly (case-insensitive); an unknown or ambiguous name is rejected.
+The calendar's label is never touched. Only subscribed feeds (kind: webcal) are supported.
+After changing it reads the calendar back and reports what is really linked. Get the ID
+from get_source_calendars. Feed addresses are never shown.`,
+    {
+      calendarId: z.string().describe("Numeric calendar ID from get_source_calendars."),
+      link: z.array(z.string()).optional().describe("Profile names to link."),
+      unlink: z.array(z.string()).optional().describe("Profile names to unlink."),
+      confirm: z.boolean().optional().describe("Must be true to actually change. Default false: preview only."),
+    },
+    async ({ calendarId, link, unlink, confirm }) => {
+      try {
+        const id = calendarId.trim();
+        if (!/^\d+$/.test(id)) throw new Error("Calendar ID must be numeric (see get_source_calendars).");
+        if (!(link?.length || unlink?.length)) throw new Error("Give profile names to link or unlink.");
+        const calendars = await getSourceCalendars();
+        const found = calendars.find((c) => String(c.id) === id);
+        if (!found) throw new Error(`No synced calendar with ID ${id}. Use get_source_calendars to list them.`);
+        const attrs = found.attributes as Record<string, unknown>;
+        const label = typeof attrs.label === "string" ? attrs.label : `calendar ${id}`;
+        if (attrs.kind !== "webcal") {
+          throw new Error(`"${label}" is an account calendar (${String(attrs.kind)}). Only subscribed feeds are supported here; use the Skylight app.`);
+        }
+        const currentData = found.relationships?.categories?.data;
+        if (!Array.isArray(currentData)) {
+          throw new Error(`Skylight did not report which profiles "${label}" is linked to, so nothing was changed.`);
+        }
+        const current = currentData.map((c) => String(c.id));
+        const toLink = link?.length ? await resolveProfileIds(link) : { ids: [], labels: [] };
+        const toUnlink = unlink?.length ? await resolveProfileIds(unlink) : { ids: [], labels: [] };
+        const both = toLink.labels.filter((_, i) => toUnlink.ids.includes(toLink.ids[i]!));
+        if (both.length > 0) throw new Error(`Cannot link and unlink the same profile: ${both.join(", ")}.`);
+        const wanted = [...new Set([...current, ...toLink.ids])].filter((c) => !toUnlink.ids.includes(c));
+        if (wanted.length === 0) {
+          throw new Error(`That would leave "${label}" with no profile or label at all, which has not been verified against Skylight. Nothing was changed.`);
+        }
+        const all = await getCategories();
+        const nameOf = (cid: string): string => all.find((c) => c.id === cid)?.attributes.label ?? `category ${cid}`;
+        const isProfile = (cid: string): boolean => all.find((c) => c.id === cid)?.attributes.linked_to_profile === true;
+        const describe = (ids: string[]): string => {
+          const profiles = ids.filter(isProfile).map(nameOf);
+          const labels = ids.filter((c) => !isProfile(c)).map(nameOf);
+          return `profiles: ${profiles.join(", ") || "none"}${labels.length ? `; labels kept: ${labels.join(", ")}` : ""}`;
+        };
+        const same = wanted.length === current.length && wanted.every((c) => current.includes(c));
+        if (same) {
+          return { content: [{ type: "text" as const, text: `No change needed. "${label}" is already linked this way (${describe(current)}).` }] };
+        }
+        if (confirm !== true) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `NOT CHANGED. "${label}"\nNow:   ${describe(current)}\nAfter: ${describe(wanted)}\n\nIf the user approves, call update_source_calendar_profiles again with the same arguments and confirm: true.`,
+              },
+            ],
+          };
+        }
+        await setSourceCalendarCategories(id, wanted);
+        const after = (await getSourceCalendars()).find((c) => String(c.id) === id);
+        const afterIds = (after?.relationships?.categories?.data ?? []).map((c) => String(c.id));
+        if (afterIds.length !== wanted.length || !wanted.every((c) => afterIds.includes(c))) {
+          throw new Error(`Skylight accepted the change but "${label}" now shows ${describe(afterIds)}, not what was asked. Check the app.`);
+        }
+        return { content: [{ type: "text" as const, text: `Updated "${label}". Now ${describe(afterIds)}. Confirmed by reading it back.` }] };
       } catch (error) {
         return { content: [{ type: "text" as const, text: formatErrorForMcp(error) }], isError: true };
       }

@@ -457,6 +457,7 @@ Messages are the notes shown on the frame (Skylight's web app calls them "nudges
 | `get_calendar_events` | read | Events for a date range |
 | `get_source_calendars` | read | Connected calendar sources (Google, iCloud, etc.), with each one's role and whether it is editable. Private feed addresses are hidden: only the host is shown |
 | `delete_source_calendar` | destructive | Stop syncing a subscribed calendar feed (a team, school or league schedule). Preview first, then `confirm: true`. Its events leave the family calendar and wall display until it is added again. Feeds only (`kind: webcal`); account calendars are refused. Local server only. |
+| `update_source_calendar_profiles` | write | Link a subscribed calendar feed to family profiles, or unlink it (the "Link profiles" checkboxes). Preview first, then `confirm: true`; it sends the complete set so the calendar's label is kept, then reads it back. Feeds only (`kind: webcal`); a calendar can never be left with no profile or label. |
 | `create_calendar_event` | write | Add an event. `profiles` assigns it to named family members. Local times are sent with the frame's UTC offset. |
 | `update_calendar_event` | write | Change an event, including who it is assigned to (`profiles`) |
 | `delete_calendar_event` | destructive | Delete an event. Local server only. |

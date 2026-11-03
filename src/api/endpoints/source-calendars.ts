@@ -79,3 +79,21 @@ export async function removeSourceCalendar(id: string): Promise<void> {
   if (!/^\d+$/.test(id)) throw new Error("Calendar ID must be numeric (see get_source_calendars).");
   await getClient().request(`/api/frames/{frameId}/source_calendars/${id}`, { method: "DELETE" });
 }
+
+/**
+ * Replace the set of categories (profiles and labels) a synced calendar is linked to.
+ *
+ * Captured from the web app: `PUT /source_calendars/{id}/source_calendar_categorizations`
+ * with `{ categorizations: [{ category_id }] }`. It is a full replacement, so callers must
+ * send the complete wanted set or they silently drop the existing label. The response is the
+ * calendar record including its feed address; nothing from it is returned.
+ */
+export async function setSourceCalendarCategories(id: string, categoryIds: string[]): Promise<void> {
+  if (!/^\d+$/.test(id)) throw new Error("Calendar ID must be numeric (see get_source_calendars).");
+  if (categoryIds.length === 0) throw new Error("Refusing to send an empty set: its effect on Skylight has not been verified.");
+  if (categoryIds.some((c) => !/^\d+$/.test(c))) throw new Error("Category IDs must be numeric.");
+  await getClient().request(`/api/frames/{frameId}/source_calendars/${id}/source_calendar_categorizations`, {
+    method: "PUT",
+    body: { categorizations: categoryIds.map((category_id) => ({ category_id })) },
+  });
+}
