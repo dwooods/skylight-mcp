@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.10.0] - 2026-11-03
 
 ### Added
+- `get_source_calendars` now explains Skylight's Sync Calendar options (Calendar URL, Google, Outlook, iCloud, Cozi, TeamSnap, US Holidays, Individual Events) and which of them this server can add or manage; the README has the same table. A test checks every tool the guidance names exists.
 - `rename_source_calendar`: rename a subscribed feed. Write tool, preview-first with `confirm: true`, also on the hosted server. Refuses a blank name or one that looks like a web address, and checks after the change that the name changed and the linked profiles did not.
 - `update_source_calendar_profiles`: link or unlink a subscribed calendar feed to family profiles (the Edit Calendar "Link profiles" checkboxes). Write tool, preview-first with `confirm: true`, also on the hosted server. Skylight replaces the whole set on each save, so the tool sends the full wanted set to keep the label, reads it back, and refuses to leave a calendar with nothing linked.
 - `skylight-mcp calendars add`: sync a team, school or league calendar feed. The address is typed into a hidden prompt and is refused on the command line, so it never reaches shell history, an MCP tool argument, a chat transcript or a log. Only the calendar's name and the feed host are printed. A feed that is already synced is reported as such, not as a failure. While pasting it shows a running character count (never the text), and an address pasted twice is refused before anything is sent.

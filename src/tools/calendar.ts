@@ -346,7 +346,17 @@ Use this to answer:
 - "Which calendars are synced to Skylight?"
 - "What calendar accounts are connected?"
 
-Returns a list of connected calendar sources (Google, iCloud, etc.).`,
+Returns a list of connected calendar sources (Google, iCloud, etc.).
+
+Ways to add a calendar in Skylight's "Sync Calendar" screen, and what this server can do:
+- Calendar URL (a subscription link: a team, school, league or iCloud published calendar):
+  the user runs "skylight-mcp calendars add" in a terminal (the link is a secret, so it is
+  never typed into chat). Once added, rename_source_calendar, update_source_calendar_profiles
+  and delete_source_calendar manage it.
+- Google, Outlook/Hotmail/Live, iCloud, Cozi, TeamSnap: the user signs in inside the Skylight
+  app. Not possible here. Calendars added this way (kind: gmail) can be read but not removed here.
+- US Holidays and Individual Events: set up in the app (a built-in feed and local events).
+Only feeds (kind: webcal) are one-way; Skylight cannot write back to them.`,
     {},
     async () => {
       try {

@@ -112,6 +112,18 @@ npx -y @davidwoods/skylight-mcp doctor
 to Skylight, and says what to fix. It never prints tokens or your frame ID.
 Add `--offline` to skip the network call.
 
+### What you can sync, and what this server can do
+
+Skylight's **Sync Calendar** screen offers these. From the app's screen; the "this server" column is what changes here.
+
+| Option in Skylight | Add it | Manage it with this server |
+| --- | --- | --- |
+| Calendar URL (team, school, league, iCloud published calendar) | `skylight-mcp calendars add`, or in the app | Rename, link to profiles, remove, list |
+| Google, Outlook/Hotmail/Live, iCloud account, Cozi, TeamSnap | Sign in inside the Skylight app (cannot be done here) | List only |
+| US Holidays, Individual Events | In the app | List only |
+
+Calendars from a subscription link are one-way: Skylight reads them and cannot write back.
+
 ### Add a team, school or league calendar
 
 ```

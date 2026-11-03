@@ -497,3 +497,17 @@ describe("rename_source_calendar", () => {
     expect(await call({ calendarId: "2", name: "Fates" }, true)).toContain("NOT RENAMED");
   });
 });
+
+describe("get_source_calendars guidance", () => {
+  it("only names tools that exist, so the advice cannot go stale", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { TOOL_EFFECTS } = await import("../src/tools/registry.js");
+    const src = readFileSync(new URL("../src/tools/calendar.ts", import.meta.url), "utf8");
+    const block = src.slice(src.indexOf('"get_source_calendars"'), src.indexOf("Only feeds (kind: webcal) are one-way"));
+    const named = [...block.matchAll(/\b((?:update|rename|delete)_\w+)/g)].map((m) => m[1]!);
+    expect(named).toHaveLength(3);
+    expect(named.length).toBeGreaterThan(0);
+    for (const n of named) expect(Object.keys(TOOL_EFFECTS)).toContain(n);
+    expect(block).toContain("skylight-mcp calendars add");
+  });
+});
