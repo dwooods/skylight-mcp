@@ -388,3 +388,94 @@ describe("update_source_calendar_profiles", () => {
     expect(await call({ calendarId: "2", link: ["Ben"] }, { hosted: true })).toContain("NOT CHANGED");
   });
 });
+
+describe("rename_source_calendar", () => {
+  const cal = (id: string, kind: string, label: string, cats: string[]) => ({
+    id,
+    type: "source_calendar_detail",
+    attributes: { label, kind, source_id: kind === "webcal" ? FEED : "o@example.com", default_for_new_events: false },
+    relationships: { categories: { data: cats.map((c) => ({ id: c, type: "category_detail" })) } },
+  });
+
+  async function call(args: Record<string, unknown>, hosted = false): Promise<string> {
+    const server = new McpServer({ name: "skylight", version: "t" });
+    registerTools(server, hosted ? { hasPlus: true, effects: HOSTED_EFFECTS, include: HOSTED_DESTRUCTIVE_ALLOWLIST, photos: false } : { hasPlus: true, photos: false });
+    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    await server.connect(transport);
+    const req = new Request("https://w.example/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "rename_source_calendar", arguments: args } }),
+    });
+    const res = await runWithContext({ client: new SkylightClient(config, null), config }, () => transport.handleRequest(req));
+    const json = (await res.json()) as { result?: { content: Array<{ text: string }> }; error?: { message: string } };
+    return json.result ? json.result.content.map((c) => c.text).join("\n") : `ERROR ${json.error?.message}`;
+  }
+
+  /** PUT renames unless `ignorePut`; `wipeLinks` simulates a rename that also drops the profile links. */
+  function stub(opts: { ignorePut?: boolean; wipeLinks?: boolean } = {}): Array<{ method: string; url: string; body?: unknown }> {
+    const seen: Array<{ method: string; url: string; body?: unknown }> = [];
+    let label = "CTK - B8N - Fates Schedule";
+    let cats = ["99", "10"];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        seen.push({ method: String(init.method), url: String(url), body: init.body ? JSON.parse(init.body as string) : undefined });
+        if (init.method === "PUT") {
+          if (!opts.ignorePut) label = (JSON.parse(init.body as string) as { label: string }).label;
+          if (opts.wipeLinks) cats = ["99"];
+          return new Response(JSON.stringify({ data: cal("2", "webcal", label, cats) }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ data: [cal("2", "webcal", label, cats), cal("3", "gmail", "Family", ["11"])] }), { status: 200 });
+      })
+    );
+    return seen;
+  }
+  const puts = (seen: Array<{ method: string }>) => seen.filter((c) => c.method === "PUT");
+
+  it("previews without writing and never shows the address", async () => {
+    const seen = stub();
+    const text = await call({ calendarId: "2", name: "Fates" });
+    expect(text).toContain("NOT RENAMED");
+    expect(text).toContain('"Fates"');
+    for (const s of SECRETS) expect(text).not.toContain(s);
+    expect(puts(seen)).toHaveLength(0);
+  });
+
+  it("puts only the label to the captured path and reads it back", async () => {
+    const seen = stub();
+    const text = await call({ calendarId: "2", name: "  Fates   Schedule ", confirm: true });
+    expect(text).toContain("Confirmed by reading it back");
+    expect(puts(seen)).toHaveLength(1);
+    expect(puts(seen)[0]!.url).toBe("https://app.ourskylight.com/api/frames/frame-1/source_calendars/2");
+    expect(puts(seen)[0]!.body).toEqual({ label: "Fates Schedule" });
+  });
+
+  it("does not trust the write: a rename Skylight ignored is an error", async () => {
+    stub({ ignorePut: true });
+    expect(await call({ calendarId: "2", name: "Fates", confirm: true })).toMatch(/still called/);
+  });
+
+  it("notices when a rename changed the linked profiles", async () => {
+    stub({ wipeLinks: true });
+    expect(await call({ calendarId: "2", name: "Fates", confirm: true })).toMatch(/linked profiles changed/);
+  });
+
+  it("refuses blank, link-shaped and over-long names, account calendars and bad IDs, writing nothing", async () => {
+    const seen = stub();
+    expect(await call({ calendarId: "2", name: "   ", confirm: true })).toMatch(/cannot be blank/);
+    expect(await call({ calendarId: "2", name: FEED, confirm: true })).toMatch(/web address/);
+    expect(await call({ calendarId: "2", name: "x".repeat(101), confirm: true })).toMatch(/longer than/);
+    expect(await call({ calendarId: "3", name: "Fam", confirm: true })).toMatch(/account calendar/);
+    expect(await call({ calendarId: "../x", name: "A", confirm: true })).toMatch(/numeric/);
+    expect(await call({ calendarId: "77", name: "A", confirm: true })).toMatch(/No synced calendar/);
+    expect(puts(seen)).toHaveLength(0);
+  });
+
+  it("does nothing when the name is already that, and works on the hosted server", async () => {
+    const seen = stub();
+    expect(await call({ calendarId: "2", name: "CTK - B8N - Fates Schedule", confirm: true })).toMatch(/No change needed/);
+    expect(puts(seen)).toHaveLength(0);
+    expect(await call({ calendarId: "2", name: "Fates" }, true)).toContain("NOT RENAMED");
+  });
+});

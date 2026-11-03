@@ -37,6 +37,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   get_source_calendars: "read",
   delete_source_calendar: "destructive",
   update_source_calendar_profiles: "write",
+  rename_source_calendar: "write",
   create_calendar_event: "write",
   update_calendar_event: "write",
   delete_calendar_event: "destructive",

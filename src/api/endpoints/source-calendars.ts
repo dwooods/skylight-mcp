@@ -97,3 +97,26 @@ export async function setSourceCalendarCategories(id: string, categoryIds: strin
     body: { categorizations: categoryIds.map((category_id) => ({ category_id })) },
   });
 }
+
+export const MAX_CALENDAR_NAME = 100;
+
+/** A calendar name: non-empty, one line, not a link (a pasted feed address must never become a visible name). */
+export function checkCalendarName(input: string): { ok: true; name: string } | { ok: false; reason: string } {
+  const name = input.trim().replace(/\s+/g, " ");
+  if (!name) return { ok: false, reason: "The name cannot be blank." };
+  if (name.length > MAX_CALENDAR_NAME) return { ok: false, reason: `The name is longer than ${MAX_CALENDAR_NAME} characters.` };
+  if (/:\/\//.test(name)) return { ok: false, reason: "The name looks like a web address. Give a plain name." };
+  return { ok: true, name };
+}
+
+/**
+ * Rename a synced calendar. Captured from the web app: `PUT /source_calendars/{id}` with
+ * `{ label }` (a blank label is a 422). The response is the calendar record including its feed
+ * address; nothing from it is returned.
+ */
+export async function renameSourceCalendar(id: string, name: string): Promise<void> {
+  if (!/^\d+$/.test(id)) throw new Error("Calendar ID must be numeric (see get_source_calendars).");
+  const check = checkCalendarName(name);
+  if (!check.ok) throw new Error(check.reason);
+  await getClient().request(`/api/frames/{frameId}/source_calendars/${id}`, { method: "PUT", body: { label: check.name } });
+}
