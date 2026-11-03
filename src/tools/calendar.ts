@@ -11,7 +11,8 @@ import {
 } from "../api/endpoints/calendar.js";
 import { getTodayDate, parseDate, formatDateForDisplay } from "../utils/dates.js";
 import { formatErrorForMcp } from "../utils/errors.js";
-import { formatAttribute } from "../utils/redact.js";
+import { formatAttribute, redactFeedUrl } from "../utils/redact.js";
+import { removeSourceCalendar } from "../api/endpoints/source-calendars.js";
 import { getConfig } from "../config.js";
 import { getCategories, resolveProfileIds } from "../api/endpoints/categories.js";
 import type { CalendarEventResource } from "../api/types.js";
@@ -134,6 +135,64 @@ Returns a list of events with their titles, times, and details.`,
           ],
           isError: true,
         };
+      }
+    }
+  );
+
+  // delete_source_calendar tool
+  server.tool(
+    "delete_source_calendar",
+    `Stop syncing a subscribed calendar feed (a team, school or league schedule) to Skylight.
+
+DESTRUCTIVE: the feed's events disappear from the family calendar and the wall display
+until the feed is added again. The feed itself is not changed. Only subscribed feeds
+(kind: webcal) can be removed here; a Google or other account calendar must be removed
+in the Skylight app.
+
+Two-step. Without confirm it only previews which calendar would go. Show the user the
+name and get a clear yes before calling with confirm: true. After removing it reads the
+list back and reports whether the calendar is really gone. Get the ID from
+get_source_calendars. Feed addresses are never shown, only the host.`,
+    {
+      calendarId: z.string().describe("Numeric calendar ID from get_source_calendars."),
+      confirm: z.boolean().optional().describe("Must be true to actually remove. Default false: preview only."),
+    },
+    async ({ calendarId, confirm }) => {
+      try {
+        const id = calendarId.trim();
+        if (!/^\d+$/.test(id)) throw new Error("Calendar ID must be numeric (see get_source_calendars).");
+        const calendars = await getSourceCalendars();
+        const found = calendars.find((c) => String(c.id) === id);
+        if (!found) throw new Error(`No synced calendar with ID ${id}. Use get_source_calendars to list them.`);
+        const attrs = found.attributes as Record<string, unknown>;
+        const label = typeof attrs.label === "string" ? attrs.label : `calendar ${id}`;
+        if (attrs.kind !== "webcal") {
+          throw new Error(
+            `"${label}" is an account calendar (${String(attrs.kind)}), not a subscribed feed. Remove it in the Skylight app; this tool only removes feeds.`
+          );
+        }
+        if (attrs.default_for_new_events === true) {
+          throw new Error(`"${label}" is where new events are saved. Change that default in the Skylight app first.`);
+        }
+        const host = typeof attrs.source_id === "string" ? redactFeedUrl(attrs.source_id) : "feed";
+        if (confirm !== true) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `NOT REMOVED. This would stop syncing "${label}" (${host}). Its events would disappear from the family calendar and the wall display until the feed is added again.\n\nIf the user approves, call delete_source_calendar again with confirm: true.`,
+              },
+            ],
+          };
+        }
+        await removeSourceCalendar(id);
+        const after = await getSourceCalendars();
+        if (after.some((c) => String(c.id) === id)) {
+          throw new Error(`Skylight accepted the remove call but "${label}" is still listed. Do not assume it is gone; check the app.`);
+        }
+        return { content: [{ type: "text" as const, text: `Removed "${label}" (${host}). Confirmed gone from the synced calendars list.` }] };
+      } catch (error) {
+        return { content: [{ type: "text" as const, text: formatErrorForMcp(error) }], isError: true };
       }
     }
   );

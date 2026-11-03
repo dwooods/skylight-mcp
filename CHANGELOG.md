@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-03
+
+### Added
+- `skylight-mcp calendars add`: sync a team, school or league calendar feed. The address is typed into a hidden prompt and is refused on the command line, so it never reaches shell history, an MCP tool argument, a chat transcript or a log. Only the calendar's name and the feed host are printed. A feed that is already synced is reported as such, not as a failure.
+- `delete_source_calendar` (destructive, local server only): stop syncing a subscribed feed. Preview first, then `confirm: true`; reads the list back to confirm it is gone. Account calendars (Google and others) and the calendar new events are saved to are refused.
+
 ## [1.9.2] - 2026-11-03
 
 ### Security
