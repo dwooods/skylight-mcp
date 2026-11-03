@@ -31,6 +31,10 @@ export function checkFeedUrl(input: string): FeedCheck {
   if (!scheme || !FEED_SCHEMES.has(`${scheme[1]!.toLowerCase()}:`)) {
     return { ok: false, reason: "The address must start with https://, http://, webcal:// or webcals://." };
   }
+  // Pasting twice (nothing is shown while pasting) joins two addresses into one string.
+  if ((url.match(/(?:https?|webcals?):\/\//gi) ?? []).length > 1) {
+    return { ok: false, reason: "That looks like more than one address pasted together. Paste the link once." };
+  }
   try {
     // URL() does not parse webcal: the same way everywhere, so parse as https.
     const host = new URL(url.replace(/^[a-z]+:/i, "https:")).hostname;

@@ -28,6 +28,13 @@ describe("checkFeedUrl", () => {
     expect(checkFeedUrl(FEED)).toMatchObject({ ok: true, host: "calendar-api.example.com" });
   });
 
+  it("rejects an address pasted more than once, before anything is sent", () => {
+    const r = checkFeedUrl(FEED + FEED);
+    expect(r.ok).toBe(false);
+    expect(checkFeedUrl(FEED + "webcal://p1-caldav.example.com/x").ok).toBe(false);
+    expect(JSON.stringify(r)).not.toContain("SECRETTOKEN123");
+  });
+
   it("rejects anything that is not a web address, before anything is sent", () => {
     for (const u of ["", "   ", "file:///etc/passwd", "javascript:alert(1)", "ftp://x.example.com/a", "not a url", "https://", "https://a b.example.com", "family123@group.calendar.example.com"]) {
       expect(checkFeedUrl(u).ok).toBe(false);
@@ -168,6 +175,17 @@ describe("promptHidden", () => {
     for (const s of SECRETS) expect(shown).not.toContain(s);
     expect(shown).toContain(`${FEED.length} characters`);
     expect(input.raw).toEqual([true, false]);
+  });
+
+  it("shows a running character count while pasting, never the text", async () => {
+    const input = fakeInput(true);
+    const written: string[] = [];
+    const p = promptHidden("Address: ", { input, output: { write: (t) => written.push(t) } });
+    input.emit(FEED.slice(0, 30));
+    expect(written.join("")).toContain("30 characters (not shown)");
+    input.emit(`${FEED.slice(30)}\r`);
+    await p;
+    for (const s of SECRETS) expect(written.join("")).not.toContain(s);
   });
 
   it("handles backspace and ignores control characters", async () => {

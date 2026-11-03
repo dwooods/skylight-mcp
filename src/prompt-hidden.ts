@@ -49,6 +49,11 @@ export async function promptHidden(
       result();
     };
     const onEnd = () => finish(() => resolve(value));
+    // Nothing typed is shown, so a paste looks like it did nothing and gets repeated. A live
+    // count (never the text) is the only sign that it landed.
+    const showCount = () => {
+      if (raw) output.write(`\r\u001b[K${question}${value.length} characters (not shown)`);
+    };
     const onData = (chunk?: string) => {
       for (const ch of chunk ?? "") {
         if (ch === "\r" || ch === "\n") {
@@ -65,6 +70,7 @@ export async function promptHidden(
         }
         if (ch >= " ") value += ch;
       }
+      showCount();
     };
     input.on("data", onData);
     input.on("end", onEnd);
