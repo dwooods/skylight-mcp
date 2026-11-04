@@ -305,7 +305,7 @@ The hosted server registers all **read and create/update tools**, plus these
 deletes: `delete_chore`, `delete_list`, `delete_list_item`, `delete_reward`,
 `delete_recipe`, `delete_meal_sitting`, `delete_message` and
 `delete_calendar_event` (Skylight-created, non-repeating events only). It does **not**
-register `delete_source_calendar` or photo uploads. The local (stdio) server
+register `delete_source_calendar`, `delete_label` or photo uploads. The local (stdio) server
 registers everything. This is a deliberate choice, not a limitation of the Worker:
 
 - The hosted server is what Claude Duet drives proactively, sometimes
@@ -514,6 +514,8 @@ Messages are the notes shown on the frame (Skylight's web app calls them "nudges
 | `get_family_members` | read | Family member profiles, with the IDs and names that `to` and `profiles` use |
 | `get_frame_info` | read | Household/frame information |
 | `get_devices` | read | Skylight devices |
+| `get_labels` | read | Calendar labels (team, school year, holiday feed: the groupings that are not family members), each with its count of upcoming events and whether a synced calendar still writes to it, so unused ones are easy to spot |
+| `delete_label` | destructive | Delete one calendar label, which the Skylight app itself cannot do. Preview first, then `confirm: true`; confirms by reading the label list back. Refuses, even with confirm, a profile (family member) and a label a synced calendar still writes to. Events keep existing and lose the grouping. Local server only |
 | `get_avatars` | read | Available profile avatars |
 | `get_colors` | read | Available profile colours |
 
