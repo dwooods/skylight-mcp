@@ -515,7 +515,7 @@ Messages are the notes shown on the frame (Skylight's web app calls them "nudges
 | `get_frame_info` | read | Household/frame information |
 | `get_devices` | read | Skylight devices |
 | `get_labels` | read | Calendar labels (team, school year, holiday feed: the groupings that are not family members), each with its count of upcoming events and whether a synced calendar still writes to it, so unused ones are easy to spot |
-| `delete_label` | destructive | Delete one calendar label, which the Skylight app itself cannot do. Preview first, then `confirm: true`; confirms by reading the label list back. Refuses, even with confirm, a profile (family member) and a label a synced calendar still writes to. Events keep existing and lose the grouping. Local server only |
+| `delete_label` | destructive | Delete one calendar label (the iOS app can do this; the web app cannot). Preview first, then `confirm: true`; the preview lists the upcoming events that carry only this label, because those are removed with it, while events that also have a profile or another label stay and lose it. Refuses, even with confirm, a profile (family member) and a label a synced calendar still writes to (that would unsync the calendar). Confirms by reading the label list back. Local server only |
 | `get_avatars` | read | Available profile avatars |
 | `get_colors` | read | Available profile colours |
 

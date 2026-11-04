@@ -38,6 +38,7 @@ function cat(id: string, label: string, over: { profile?: boolean; feeds?: strin
 }
 const DEAD = cat("401", "OLD TEAM BLUE");
 const DEAD2 = cat("402", "7th Grade");
+const USED = cat("404", "Spring League");
 const FEED = cat("403", "Team Schedule", { feeds: ["9001"] });
 const PROFILE = cat("301", "Alex", { profile: true });
 const PROFILE2 = cat("302", "Sam", { profile: true });
@@ -53,8 +54,8 @@ function event(id: string, ...categoryIds: string[]) {
 
 /** Fake Skylight: categories and events; DELETE on a category removes it after `lagReads` more reads. */
 function stub(opts: { lagReads?: number; deleteStatus?: number; neverGone?: boolean } = {}) {
-  let cats = [DEAD, DEAD2, FEED, PROFILE, PROFILE2];
-  const events = [event("e1", "403", "301"), event("e2", "403"), event("e3", "302")];
+  let cats = [DEAD, DEAD2, FEED, USED, PROFILE, PROFILE2];
+  const events = [event("e1", "403", "301"), event("e2", "403"), event("e3", "302"), event("e4", "404"), event("e5", "404", "301")];
   let pending: string | null = null;
   let lag = 0;
   const deletes: string[] = [];
@@ -110,13 +111,33 @@ describe("get_labels", () => {
 });
 
 describe("delete_label", () => {
-  it("preview sends no DELETE", async () => {
+  it("preview sends no DELETE and says no event would be removed for a dead label", async () => {
     const { deletes } = stub();
     const out = await call("delete_label", { labelId: "401" });
     expect(out.isError).toBe(false);
     expect(out.text).toContain("Preview only, nothing deleted");
     expect(out.text).toContain("OLD TEAM BLUE");
+    expect(out.text).toContain("no event would be removed");
+    expect(out.text).not.toContain("REMOVED from Skylight");
     expect(deletes).toEqual([]);
+  });
+
+  it("preview lists the events that carry only this label as removed, and counts shared ones as staying", async () => {
+    const { deletes } = stub();
+    const out = await call("delete_label", { labelId: "404" });
+    expect(out.isError).toBe(false);
+    expect(out.text).toContain("1 upcoming event carries only this label and would be REMOVED from Skylight");
+    expect(out.text).toContain("Ee4 [event ID: e4]");
+    expect(out.text).not.toContain("[event ID: e5]");
+    expect(out.text).toContain("1 upcoming event also has a profile or another label; it stays and loses this label");
+    expect(deletes).toEqual([]);
+  });
+
+  it("the confirmed reply says how many events went with the label", async () => {
+    stub();
+    const out = await call("delete_label", { labelId: "404", confirm: true });
+    expect(out.isError).toBe(false);
+    expect(out.text).toContain("and with it 1 upcoming event that carried only this label");
   });
 
   it("confirm sends exactly one DELETE for that id and confirms by read-back", async () => {
