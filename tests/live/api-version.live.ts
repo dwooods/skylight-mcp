@@ -21,10 +21,10 @@ interface Probe {
   plusOnly?: boolean;
 }
 
-liveSuite("api version: response shape", { tags: ["read", "contract"] }, (ctx) => {
-  const from = ctx.today();
-  const to = ctx.daysFromToday(35);
-  const probes: Probe[] = [
+// The suite body runs at registration, before the live connection exists, so nothing
+// that needs the connection (today, timezone, hasPlus, client) may be read out here.
+function buildProbes(from: string, to: string, timezone: string): Probe[] {
+  return [
     { name: "frame", endpoint: "/api/frames/{frameId}" },
     { name: "devices", endpoint: "/api/frames/{frameId}/devices" },
     { name: "avatars", endpoint: "/api/avatars" },
@@ -34,7 +34,7 @@ liveSuite("api version: response shape", { tags: ["read", "contract"] }, (ctx) =
     {
       name: "calendar_events",
       endpoint: "/api/frames/{frameId}/calendar_events",
-      params: { date_min: from, date_max: to, timezone: ctx.timezone, include: "categories" },
+      params: { date_min: from, date_max: to, timezone, include: "categories" },
     },
     { name: "chores", endpoint: "/api/frames/{frameId}/chores", params: { after: from, before: to } },
     { name: "lists", endpoint: "/api/frames/{frameId}/lists" },
@@ -51,10 +51,13 @@ liveSuite("api version: response shape", { tags: ["read", "contract"] }, (ctx) =
     { name: "rewards", endpoint: "/api/frames/{frameId}/rewards", plusOnly: true },
     { name: "reward_points", endpoint: "/api/frames/{frameId}/reward_points", plusOnly: true },
   ];
+}
 
+liveSuite("api version: response shape", { tags: ["read", "contract"] }, (ctx) => {
   it(`default ${SKYLIGHT_API_VERSION} vs app ${APP_VERSION}`, async () => {
     expect(APP_VERSION).not.toBe(SKYLIGHT_API_VERSION);
     const client = ctx.client();
+    const probes = buildProbes(ctx.today(), ctx.daysFromToday(35), ctx.timezone);
     const problems: string[] = [];
     const same: string[] = [];
 
