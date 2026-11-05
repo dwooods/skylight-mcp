@@ -31,7 +31,7 @@ LIVE_SKIP_TAGS=write   SKYLIGHT_LIVE=1 npm run test:live   # everything except w
 npm run test:live -- meals                                 # by file name
 ```
 
-Current tags: `read`, `smoke`, `contract`, `guards`, `write`, `meals`.
+Current tags: `read`, `smoke`, `contract`, `guards`, `write`, `meals`. `LIVE_TAGS=contract` includes the API-version shape comparison (read-only; prints key paths, never values).
 
 ## Add a test
 
