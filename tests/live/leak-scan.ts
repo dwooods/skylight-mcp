@@ -16,6 +16,8 @@ export type LeakKind = "feed-scheme" | "url-with-query" | "url-token-path" | "jw
 
 export interface LeakFinding {
   kind: LeakKind;
+  /** The attribute name the value sat under (e.g. "image_url"), or "(other)". Names only, never values. */
+  key: string;
   count: number;
 }
 
@@ -41,19 +43,38 @@ function isStockAsset(url: string): boolean {
   }
 }
 
-/** The key of a "  key: value" line, lowercased, or null. */
+/**
+ * The attribute name of a "  key: value" line as the tools print attributes
+ * (two spaces, lowercase snake_case), or null. Lines that follow it without a
+ * key of their own (a multi-line description) belong to the same attribute.
+ */
 function lineKey(line: string): string | null {
-  const m = /^\s*(?:[-*]\s*)?([A-Za-z][A-Za-z _]*?):\s/.exec(line);
-  return m ? m[1].toLowerCase().replace(/ /g, "_") : null;
+  const m = /^ {2}([a-z][a-z0-9_]*):\s/.exec(line);
+  return m ? m[1] : null;
+}
+
+/** A redacted feed address keeps its scheme and host: "webcal://host/... (feed address hidden)". */
+function isRedactedFeed(line: string, url: string): boolean {
+  if (!/^webcals?:\/\/[^/\s]+\/\.\.\.$/i.test(url)) return false;
+  const after = line.slice(line.indexOf(url) + url.length);
+  return /^\s*\(feed address hidden\)/.test(after);
 }
 
 export function scanForLeaks(text: string): LeakFinding[] {
-  const counts = new Map<LeakKind, number>();
-  const bump = (kind: LeakKind) => counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  const counts = new Map<string, LeakFinding>();
+  let currentKey = "(other)";
+  const bump = (kind: LeakKind) => {
+    const id = `${kind}|${currentKey}`;
+    const found = counts.get(id) ?? { kind, key: currentKey, count: 0 };
+    found.count += 1;
+    counts.set(id, found);
+  };
 
   for (const line of text.split("\n")) {
     const key = lineKey(line);
-    if (key && FREE_TEXT_KEYS.has(key)) continue;
+    if (key) currentKey = key;
+    else if (/^- .*\(ID: /.test(line)) currentKey = "(other)"; // a new item header: "- Event (ID: 1)"
+    if (FREE_TEXT_KEYS.has(currentKey)) continue;
 
     if (/\bAuthorization:\s*Bearer\b/i.test(line) || /\bBearer\s+[A-Za-z0-9._-]{20,}/.test(line)) bump("bearer-header");
     if (/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./.test(line)) bump("jwt-like");
@@ -61,7 +82,7 @@ export function scanForLeaks(text: string): LeakFinding[] {
     const urls = line.match(URL_RE) ?? [];
     for (const url of urls) {
       if (/^webcals?:/i.test(url)) {
-        bump("feed-scheme");
+        if (!isRedactedFeed(line, url)) bump("feed-scheme");
         continue;
       }
       if (isStockAsset(url)) continue;
@@ -84,5 +105,5 @@ export function scanForLeaks(text: string): LeakFinding[] {
     }
   }
 
-  return [...counts.entries()].map(([kind, count]) => ({ kind, count }));
+  return [...counts.values()];
 }

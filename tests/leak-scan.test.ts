@@ -23,7 +23,26 @@ describe("scanForLeaks", () => {
 
   it("ignores links in text a person wrote", () => {
     expect(kinds("  description: Join https://meet.example.com/room/Ab3dEf6hIj9lMn2pQr5tUv8?pwd=1")).toEqual([]);
-    expect(kinds("  Location: https://maps.example.com/p?q=1")).toEqual([]);
+    expect(kinds("  location: https://maps.example.com/p?q=1")).toEqual([]);
+  });
+
+  it("ignores a link on a continuation line of a free-text attribute, but not under any other key", () => {
+    expect(kinds("  description: first line\nJoin https://meet.example.com/x?pwd=1\n  title: next")).toEqual([]);
+    const f = scanForLeaks("  image_url: https://media.example.com/a.jpg?sig=zzz");
+    expect(f).toEqual([{ kind: "url-with-query", key: "image_url", count: 1 }]);
+    // A continuation after a non-free-text key stays under that key.
+    expect(scanForLeaks("  something: x\nhttps://a.example.com/x?t=1")).toEqual([{ kind: "url-with-query", key: "something", count: 1 }]);
+  });
+
+  it("a new item header ends the previous item's free-text attribute", () => {
+    const text = "- Event (ID: 1)\n  description: first\n- Event (ID: 2)\nhttps://a.example.com/x?t=1";
+    expect(scanForLeaks(text)).toEqual([{ kind: "url-with-query", key: "(other)", count: 1 }]);
+  });
+
+  it("accepts a redacted feed address and still flags a real one", () => {
+    expect(kinds("  source_id: webcal://p1.example.com/... (feed address hidden)")).toEqual([]);
+    expect(kinds("  source_id: webcal://p1.example.com/published/abc (feed address hidden)")).toEqual(["feed-scheme"]);
+    expect(kinds("  source_id: webcal://p1.example.com/...")).toEqual(["feed-scheme"]);
   });
 
   it("does not flag ordinary output", () => {
@@ -32,7 +51,7 @@ describe("scanForLeaks", () => {
 
   it("counts repeats", () => {
     const f = scanForLeaks("a: webcal://x.example.com/1\nb: webcals://y.example.com/2");
-    expect(f).toEqual([{ kind: "feed-scheme", count: 2 }]);
+    expect(f).toEqual([{ kind: "feed-scheme", key: "(other)", count: 2 }]);
   });
 
   it("never returns any input text", () => {
