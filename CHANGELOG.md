@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- EXPERIMENTAL, not verified live: `update_calendar_event` on a repeating series accepts `startsAt` and `endsAt` (both on the occurrence's date; only the time of day changes) with scope `one` or `all`. Sent as `starts_at`, `ends_at` and `timezone` with `apply_to`, plus the current profile assignment. Do not release until a live run on a throwaway series reads back correctly.
+
 ### Fixed
 - The live API-version test now counts an endpoint that answers with a bare empty array as empty (it only looked at a `data` array), so an empty endpoint is no longer reported as compared. The counting moved to a small tested helper (`itemCount`), mutation-checked. Test code only; no change to the shipped server.
 
