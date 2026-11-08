@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `create_calendar_event` takes `repeat` to create a repeating series: `frequency` daily or weekly, `interval`, `byDay` (weekly, must be the weekday of `startsAt`), and exactly one of `until` or `count`; at most 104 occurrences over two years, no open-ended series. A series is only previewed (every date listed, nothing written) until the call repeats with `confirm: true`. It goes to the default calendar (the caller cannot choose one), is written through to Google when that calendar is synced, and is refused for all-day events, more than one profile, past starts and unknown fields. `count` is sent as the `UNTIL` of the last occurrence, never as `COUNT`. Not yet verified live: whether Skylight accepts the series with no calendar fields, and daily rules.
+
 ### Documentation
 - A red caution (GitHub `[!CAUTION]` alert) in the README and SECURITY.md spells out the access a hosted connection has: create, edit and delete on every Google calendar synced to the frame, including a family member's personal calendar, with no undo from this server and no confirmation prompt in some clients. Google records these changes as made by the account connected to Skylight.
 
