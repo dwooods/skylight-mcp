@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- A red caution (GitHub `[!CAUTION]` alert) in the README and SECURITY.md spells out the access a hosted connection has: create, edit and delete on every Google calendar synced to the frame, including a family member's personal calendar, with no undo from this server and no confirmation prompt in some clients.
+
 ## [1.14.0] - 2026-11-07
 
 ### Added
