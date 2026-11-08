@@ -476,7 +476,7 @@ Parameters:
 - repeat: makes a repeating series. { frequency: "daily" | "weekly", interval (weekly 1-4, daily 1-7), byDay (weekly; must be the weekday of startsAt), and exactly one of until (YYYY-MM-DD, inclusive) or count }. Max 104 occurrences and 2 years; no open-ended series; no monthly or yearly yet.
 - confirm: required for a series. Without confirm: true a series is NOT created; you get a preview listing every date. Show it to the person, get their yes, then call again with confirm: true.
 
-REPEATING SERIES: give startsAt/endsAt as local times with no offset; all-day and more than one profile are refused. The series goes to the default calendar, and when that is a Google calendar it is written to Google too, for everyone who shares it. This tool does not check conflicts: call find_conflicts over the series dates first. To undo a series, delete_calendar_event with scope "all".
+REPEATING SERIES: give startsAt/endsAt as local times with no offset; all-day and more than one profile are refused. The series is created on Skylight's own calendar (verified live 2026-11-08): it shows on the Skylight displays and app, and is NOT written to Google, so people who only use Google Calendar will not see it. This tool does not check conflicts: call find_conflicts over the series dates first. To undo a series, delete_calendar_event with scope "all".
 
 Returns: The created event details.
 
@@ -531,7 +531,7 @@ Related: get_family_members lists the profile names and IDs.`,
                     `PREVIEW, nothing created. "${summary}" would repeat ${repeat.frequency} (every ${repeat.interval ?? 1}), ${dates.length} occurrence${dates.length === 1 ? "" : "s"}, ${startsAt.trim().slice(11, 16)} to ${endsAt.trim().slice(11, 16)} (${config.timezone}).`,
                     `Dates: ${dates.join(", ")}`,
                     profiles?.length ? `Profile: ${profiles.join(", ")}` : "Profile: none",
-                    "Goes to the default calendar; if that is a Google calendar it is also written to Google for everyone who shares it.",
+                    "Goes to Skylight's own calendar: it shows on the Skylight displays and app and is not written to Google.",
                     "Conflicts were not checked by this tool; run find_conflicts over these dates first.",
                     "To create it, show this to the person and call again with the same arguments and confirm: true. To undo later: delete_calendar_event with scope \"all\".",
                   ].join("\n"),

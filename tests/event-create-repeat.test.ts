@@ -60,6 +60,7 @@ describe("create_calendar_event with repeat", () => {
     expect(out.text).toContain("PREVIEW, nothing created");
     expect(out.text).toContain("2037-03-03, 2037-03-10, 2037-03-17");
     expect(out.text).toContain("find_conflicts");
+    expect(out.text).toContain("not written to Google");
     expect(s.posts).toEqual([]);
   });
 
