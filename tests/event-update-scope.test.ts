@@ -157,6 +157,14 @@ describe("update_calendar_event on repeating events (scope)", () => {
       });
     });
 
+    it("scope one: sends the same time fields with apply_to one (not verified live)", async () => {
+      const s = stub([ev(SERIES_ID)]);
+      const out = await call("update_calendar_event", { eventId: SERIES_ID, date, scope: "one", startsAt: "2026-11-12T19:00", endsAt: "2026-11-12T20:00" });
+      expect(out.isError).toBe(false);
+      expect(s.puts).toHaveLength(1);
+      expect(s.puts[0]!.body).toMatchObject({ starts_at: "2026-11-12T19:00:00.000+00:00", ends_at: "2026-11-12T20:00:00.000+00:00", timezone: "UTC", apply_to: "one" });
+    });
+
     it.each([
       ["only startsAt", { startsAt: "2026-11-12T19:00" }],
       ["only endsAt", { endsAt: "2026-11-12T20:00" }],

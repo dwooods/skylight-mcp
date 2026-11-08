@@ -596,7 +596,7 @@ Parameters:
 REPEATING EVENTS (the id looks like 12345-1804032000): also give
 - date (required): the occurrence's date, YYYY-MM-DD, from get_calendar_events
 - scope (required): "one" changes only that occurrence (it becomes its own event, detached from the series); "all" changes the whole series AND overwrites any earlier edit made to a single occurrence. There is no "future" scope: Skylight's API refuses it, so do not offer it.
-For a repeating event only the title (summary), the family member assignment and the time of day (startsAt and endsAt, both on the occurrence's date) can be changed here; notes, location and all-day edits on a series have not been verified, so make those in the Skylight app. A time change is NOT verified live yet.
+For a repeating event only the title (summary), the family member assignment and the time of day (startsAt and endsAt, both on the occurrence's date) can be changed here; notes, location and all-day edits on a series have not been verified, so make those in the Skylight app. A time change with scope "all" is verified live (every occurrence moved, still one series; occurrence ids change because they embed the start time, so re-read before the next call). A time change with scope "one" has not been tried live.
 Events on a Google calendar are updated at Google too, for everyone who shares that calendar.
 
 Returns: The updated event details.`,
