@@ -10,6 +10,14 @@ calendar, chores, lists, meals and rewards.
 > blocked at any time, without notice. Use it with your own account, at your
 > own risk, and keep request volume modest.
 >
+> Sign-in reuses the Skylight mobile app's own OAuth flow: it presents the app's
+> client ID (`skylight-mobile`) and redirect, because Skylight issues no client
+> of its own to third parties. Skylight's
+> [Terms of Service](https://myskylight.com/tos/) prohibit access by means other
+> than its supported interfaces and reverse engineering (§5.4), and let Skylight
+> suspend accounts with or without cause (§16). Using this project is a risk to
+> the Skylight account you sign in with, not only to the integration.
+>
 > Forked from [TheEagleByte/skylight-mcp](https://github.com/TheEagleByte/skylight-mcp)
 > (MIT). The sign-in and credential-store design follows
 > [kamilio/skylight-calendar-agent](https://github.com/kamilio/skylight-calendar-agent)
@@ -245,6 +253,12 @@ Sources are tried in this order:
    MCP client config in plaintext. Prefer the browser sign-in above.
 
 If none is present the server fails with instructions rather than starting.
+
+The browser sign-in is the mobile app's flow, not one Skylight offers to third
+parties: the server opens Skylight's own sign-in page with the app's client ID
+(`skylight-mobile`), PKCE (S256) and a state check, and you paste back the
+`ourskylight.com/welcome` address it lands on. Your password never reaches this
+project. Skylight could change or block this flow at any time.
 
 Where the credential lives:
 
@@ -756,4 +770,4 @@ MIT
 
 ## Disclaimer
 
-This is an unofficial integration. The Skylight API is reverse-engineered and may change without notice. Use at your own risk.
+This is an unofficial integration, not affiliated with or endorsed by Skylight. The Skylight API is reverse-engineered from observed app and web traffic and may change without notice. Sign-in reuses the mobile app's OAuth client. Skylight's [Terms of Service](https://myskylight.com/tos/) prohibit unsupported access and reverse engineering (§5.4) and allow account suspension (§16); you take that risk for the account you use. This project only exposes features your Skylight subscription includes. Use at your own risk.
