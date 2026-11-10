@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `create_calendar_event` takes `dinner: true` for a free-tier "Dinner plan": on an account without Plus, Skylight's calendar offers this in place of Meals. It is an all-day event of kind `meal`, which Skylight tags "Dinner Plan". Date only; no profiles, synced calendar or repeat (only that shape was captured, from the web app on a free account). The request body this builds was verified live on 2026-11-10 against a free account (created, read back as an all-day `meal` event, deleted) by a probe script that calls the same builder; the MCP tool itself has not yet been called against live Skylight.
+
 ### Changed (library and client, from Mantel's import)
 - `chores.list` takes a range (`{ from, to }`, at most 31 days) as well as one `date`; a repeating chore's `date` is now the day of that occurrence (from its id), not the series start. The range is not verified against live Skylight.
 - The library client writes no per-request `[client]` trace lines. The MCP servers are unchanged.
