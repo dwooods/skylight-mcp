@@ -75,6 +75,23 @@ async function check(label, fn) {
   }
 }
 
+// Guard: does this sign-in belong to the account that owns --frame? A sign-in to the wrong
+// account answers 404 to everything, which proves nothing about Plus. Counts only, no names.
+let frames = null;
+try {
+  frames = await run(() => client.get("/api/frames"));
+} catch (e) {
+  console.log(`Could not list this account's frames (${e?.statusCode ?? e?.name ?? "error"}). Stopping.`);
+  process.exit(1);
+}
+const ids = (Array.isArray(frames?.data) ? frames.data : []).map((f) => String(f?.id));
+if (!ids.includes(frameId)) {
+  console.log(`This sign-in sees ${ids.length} frame(s), and ${frameId} is not one of them.`);
+  console.log("The browser was probably signed in to a different Skylight account. Sign out of Skylight in the browser, sign in to the TEST account there, and run this again.");
+  process.exit(1);
+}
+console.log(`Signed in to the account that owns frame ${frameId} (it sees ${ids.length} frame(s)).`);
+
 const today = new Date().toLocaleDateString("en-CA", { timeZone: timezone });
 const later = new Date(Date.now() + 30 * 86_400_000).toLocaleDateString("en-CA", { timeZone: timezone });
 
