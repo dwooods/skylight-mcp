@@ -10,7 +10,7 @@ import { promptHidden } from "../dist/prompt-hidden.js";
 import { openSkylightUrl } from "../dist/open-url.js";
 import { SkylightClient, setQuietRequestLog } from "../dist/api/client.js";
 import { runWithContext } from "../dist/context.js";
-import { getCalendarEvents } from "../dist/api/endpoints/calendar.js";
+import { getCalendarEvents, createCalendarEvent, deleteCalendarEvent, dinnerPlanEvent } from "../dist/api/endpoints/calendar.js";
 import { getLists } from "../dist/api/endpoints/lists.js";
 import { getChores } from "../dist/api/endpoints/chores.js";
 import { getCategories } from "../dist/api/endpoints/categories.js";
@@ -83,6 +83,15 @@ await check("read  calendar events (free)", () => getCalendarEvents({ dateMin: t
 await check("read  lists (free)", () => getLists());
 await check("read  chores (free)", () => getChores({ after: today, before: today }));
 const profiles = (await check("read  profiles (free)", () => getCategories())) ?? [];
+
+// Free "Dinner plan": the exact body create_calendar_event sends with dinner: true.
+const dinner = await check("write dinner plan, kind meal (free)", () => createCalendarEvent(dinnerPlanEvent({ title: "[plus-test] delete me", date: later, description: "", timeZone: timezone })));
+if (dinner) {
+  const back = await check("  read back that dinner plan", () => getCalendarEvents({ dateMin: later, dateMax: later, timezone }));
+  const found = (Array.isArray(back) ? back : []).find((e) => String(e.id) === String(dinner.id));
+  rows.push({ label: "  it reads back as kind meal, all day", status: null, verdict: found ? (found.attributes?.kind === "meal" && found.attributes?.all_day === true ? "yes" : "NO (shape differs)") : "NOT FOUND" });
+  await check("  cleanup: delete that dinner plan", () => deleteCalendarEvent(String(dinner.id)));
+}
 
 // Plus features: reads.
 const mealCats = (await check("read  meal categories (Plus)", () => getMealCategories())) ?? [];
