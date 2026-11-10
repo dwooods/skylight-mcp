@@ -65,6 +65,33 @@ export async function getSourceCalendars(): Promise<SourceCalendarResource[]> {
 }
 
 /**
+ * A free-tier "Dinner plan": what the Skylight web app sends on an account without Plus, where
+ * the calendar's + button offers "Dinner plan" in place of Meals (captured 2026-11-10, 200). It
+ * is an ordinary all-day calendar event with kind "meal"; the server tags it with a "Dinner Plan"
+ * label itself. Dates only (YYYY-MM-DD), one day, no profiles, no synced calendar, no repeat:
+ * only that shape was captured.
+ */
+export function dinnerPlanEvent(options: { title: string; date: string; description?: string; timeZone: string }): CreateCalendarEventRequest {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(options.date) || Number.isNaN(Date.parse(`${options.date}T00:00:00Z`))) {
+    throw new Error("A dinner plan needs a date, YYYY-MM-DD.");
+  }
+  const next = new Date(Date.parse(`${options.date}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  return {
+    summary: options.title,
+    kind: "meal",
+    starts_at: options.date,
+    ends_at: next,
+    all_day: true,
+    timezone: options.timeZone,
+    description: options.description ?? "",
+    location: "",
+    category_ids: [],
+    rrule: null,
+    countdown_enabled: false,
+  };
+}
+
+/**
  * Create a calendar event
  */
 export async function createCalendarEvent(
