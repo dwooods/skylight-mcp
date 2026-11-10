@@ -5,6 +5,7 @@ import {
   getCalendarEvents,
   getSourceCalendars,
   createCalendarEvent,
+  dinnerPlanEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
   withFrameOffset,
@@ -530,6 +531,7 @@ Parameters:
 - location: Where the event takes place
 - profiles: Profile names to assign (e.g. ["Alex"]); categoryIds is the ID fallback
 - repeat: makes a repeating series. { frequency: "daily" | "weekly", interval (weekly 1-4, daily 1-7), byDay (weekly; must be the weekday of startsAt), and exactly one of until (YYYY-MM-DD, inclusive) or count }. Max 104 occurrences and 2 years; no open-ended series; no monthly or yearly yet.
+- dinner: true makes a free-tier "Dinner plan" instead of an event: Skylight's stand-in for Meals on an account without Plus (an all-day event of kind "meal", tagged "Dinner Plan" by Skylight). Give the dish as summary, startsAt as the date YYYY-MM-DD, and leave out endsAt or set it to the next day; no profiles, calendar or repeat. On a Plus account plan dinners with the meal tools instead. Not yet verified through this tool.
 - calendar: name of a linked Google calendar (see get_source_calendars, kind gmail). Only when the person asks for it. Omit it and the event goes to Skylight's own calendar, which does NOT appear in Google. With it the event (or series) is written to that Google calendar and shows for everyone who shares it, so it needs confirm: true like a series.
 - confirm: required for a series or when calendar is given. Without confirm: true nothing is created; you get a preview (a series lists every date; a calendar names it). Show it to the person, get their yes, then call again with confirm: true.
 
@@ -541,7 +543,7 @@ Related: get_family_members lists the profile names and IDs.`,
     {
       summary: z.string().describe("Event title (e.g., 'Dentist Appointment')"),
       startsAt: z.string().describe("Start time (ISO format like '2025-01-15T14:00:00')"),
-      endsAt: z.string().describe("End time (ISO format like '2025-01-15T15:00:00')"),
+      endsAt: z.string().optional().describe("End time (ISO format like '2025-01-15T15:00:00'). Required except for a dinner plan."),
       allDay: z.boolean().optional().default(false).describe("True for all-day events"),
       description: z.string().optional().describe("Additional notes for the event"),
       location: z.string().optional().describe("Event location"),
@@ -560,10 +562,27 @@ Related: get_family_members lists the profile names and IDs.`,
         .describe("Make this a repeating series (see the tool description)."),
       calendar: z.string().optional().describe("Name of a linked Google calendar to write to (see get_source_calendars). Only when the person asks; default is Skylight's own calendar."),
       confirm: z.boolean().optional().describe("Series or calendar only: must be true to create; otherwise a preview is returned."),
+      dinner: z.boolean().optional().describe("True for a free-tier Dinner plan (see the tool description)."),
     },
-    async ({ summary, startsAt, endsAt, allDay, description, location, profiles, categoryIds, repeat, calendar, confirm }) => {
+    async ({ summary, startsAt, endsAt: endsAtArg, allDay, description, location, profiles, categoryIds, repeat, calendar, confirm, dinner }) => {
       try {
         const config = getConfig();
+        if (dinner) {
+          const date = startsAt.trim();
+          if (profiles?.length || categoryIds?.length || calendar || repeat || location || confirm !== undefined) {
+            throw new Error("A dinner plan takes only summary, startsAt (the date), description and endsAt (the next day, optional). Profiles, calendar, repeat, location and confirm are not supported for it.");
+          }
+          const body = dinnerPlanEvent({ title: summary, date, description, timeZone: config.timezone });
+          if (endsAtArg !== undefined && endsAtArg.trim() !== body.ends_at) {
+            throw new Error(`A dinner plan is one day: endsAt must be ${body.ends_at} (the day after ${date}) or left out.`);
+          }
+          const event = await createCalendarEvent(body);
+          return {
+            content: [{ type: "text" as const, text: `Created dinner plan "${summary}" on ${date} (ID: ${event.id}). Read it back with get_calendar_events before telling anyone it is done.` }],
+          };
+        }
+        if (endsAtArg === undefined) throw new Error("endsAt is required (except for a dinner plan).");
+        const endsAt = endsAtArg;
         if (profiles?.length && categoryIds?.length) throw new Error("Give profiles or categoryIds, not both.");
         const resolved = profiles?.length ? (await resolveProfileIds(profiles)).ids : categoryIds;
         const target = calendar ? await resolveGoogleTarget(calendar, startsAt, config.timezone) : undefined;
