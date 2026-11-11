@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- README: the library notes now say that a second sign-in did not end two other sessions' refresh, observed over about 36 hours on one account (2026-11-11). No behaviour change.
+
 ## [1.20.0] - 2026-11-10
 
 ### Added

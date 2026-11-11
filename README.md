@@ -648,7 +648,7 @@ await loginStatus({ credential });                           // { signedIn, expi
 - `pending` is your store for the ten-minute pending sign-in: `save(value)` and an atomic `take()` (read and delete in one step). `credential` is the same store you give `createSkylight`.
 - Nothing secret is returned: the credential is written straight into your store. PKCE (S256) and the state check are always on, and a pending sign-in works once.
 - The pasted address must be the Skylight redirect (`https://ourskylight.com/welcome`); anything else is refused before any request and is never echoed in an error. There is no host or fetch option.
-- Give each app its own sign-in. Refresh tokens rotate, so two apps sharing one credential break each other. A new sign-in did not interrupt two other sessions on the same account in the minutes after it (2026-11-09); whether their next token refresh survives is not yet verified.
+- Give each app its own sign-in. Refresh tokens rotate, so two apps sharing one credential break each other. A new sign-in did not interrupt two other sessions on the same account: both kept reading in the minutes after it (2026-11-09) and again about 36 hours later, after at least one token refresh each (2026-11-11), with a further sign-in in between. This is one account observed on two days, not a guarantee from Skylight.
 - Verified against live Skylight under Node on 2026-11-09, and inside the Workers runtime (`nodejs_compat`) against a stubbed token endpoint. Not yet run with a Durable Object store.
 
 ## Skylight API calls used
