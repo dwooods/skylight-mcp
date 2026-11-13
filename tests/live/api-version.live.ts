@@ -79,6 +79,14 @@ function buildProbes(from: string, to: string, timezone: string): Probe[] {
       params: { date_min: from, date_max: to },
       plusOnly: true,
     },
+    {
+      // The read the app makes, and our meal tools now make (2026-11-12): does `include=profiles` return the same
+      // shape under the default version? If not, the assignment is invisible to anything still on the default.
+      name: "meal_sittings_profiles",
+      endpoint: "/api/frames/{frameId}/meals/sittings",
+      params: { date_min: from, date_max: to, include: "meal_category,meal_recipe,profiles" },
+      plusOnly: true,
+    },
     { name: "recipes", endpoint: "/api/frames/{frameId}/meals/recipes", plusOnly: true },
     { name: "rewards", endpoint: "/api/frames/{frameId}/rewards", plusOnly: true },
     { name: "reward_points", endpoint: "/api/frames/{frameId}/reward_points", plusOnly: true },

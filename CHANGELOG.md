@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `get_meal_sittings`, `get_week_overview` and `plan_week_meals` now read meals the way the Skylight app does (API version `2026-10-15`, `include=profiles`), after Skylight added "Assign Meals to Profiles" on 2026-11-12. `get_meal_sittings` prints who each meal is for. When several meals share a day and category (one per person), the overview lists all of them; before, the last one hid the others, and `plan_week_meals` reported only that one as the reason a slot was skipped. A slot with any meal is still skipped, never overwritten. Tested against mocked responses; not yet run on a real frame. The library entry (`createSkylight`) is unchanged and still reads under the default version.
+- Live suite: a meal-sittings probe with `include=profiles`, compared under both API versions.
 - README: the library notes now say that a second sign-in did not end two other sessions' refresh, observed over about 36 hours on one account (2026-11-11). No behaviour change.
 
 ## [1.20.0] - 2026-11-10
