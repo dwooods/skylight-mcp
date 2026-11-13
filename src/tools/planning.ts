@@ -22,7 +22,8 @@ import {
   createMealSitting,
   findMealSitting,
   getMealCategories,
-  getMealSittings,
+  getMealSittingsWithProfiles,
+  mealProfileNames,
   mealCategoryName,
   type MealCategoryResource,
   type MealSittingResource,
@@ -61,14 +62,18 @@ function resolveRange(date: string | undefined, dateEnd: string | undefined, day
 /** Meals for a range, keyed by "YYYY-MM-DD|Category". Null if the account has no meal planning. */
 async function loadMeals(start: string, end: string): Promise<{ byKey: Map<string, string>; categories: MealCategoryResource[] } | null> {
   try {
-    const [categories, sittings] = await Promise.all([getMealCategories(), getMealSittings({ dateMin: start, dateMax: addDays(end, 1) })]);
+    const [categories, found] = await Promise.all([getMealCategories(), getMealSittingsWithProfiles({ dateMin: start, dateMax: addDays(end, 1) })]);
     const name = new Map(categories.map((c) => [c.id, mealCategoryName(c)]));
     const byKey = new Map<string, string>();
-    for (const s of sittings) {
+    for (const s of found.sittings) {
       const cat = name.get(s.relationships?.meal_category?.data?.id ?? "") ?? "Meal";
-      const what = describeSitting(s);
+      const what = describeSitting(s, found.profileLabels);
       for (const d of s.attributes.instances ?? (s.attributes.date ? [s.attributes.date] : [])) {
-        if (d >= start && d <= end) byKey.set(`${d}|${cat}`, what);
+        if (d < start || d > end) continue;
+        // Several meals can share a slot (one per person): keep them all, never let the last one win.
+        const key = `${d}|${cat}`;
+        const prior = byKey.get(key);
+        byKey.set(key, prior ? `${prior}; ${what}` : what);
       }
     }
     return { byKey, categories };
@@ -77,10 +82,12 @@ async function loadMeals(start: string, end: string): Promise<{ byKey: Map<strin
   }
 }
 
-function describeSitting(s: MealSittingResource): string {
+function describeSitting(s: MealSittingResource, profileLabels: Map<string, string>): string {
   const summary = s.attributes.summary?.trim();
   const recipe = s.relationships?.meal_recipe?.data?.id;
-  return summary || (recipe ? `recipe ${recipe}` : "(empty)");
+  const base = summary || (recipe ? `recipe ${recipe}` : "(empty)");
+  const forWhom = mealProfileNames(s, profileLabels);
+  return forWhom.length ? `${base} (for: ${forWhom.join(", ")})` : base;
 }
 
 export function registerPlanningTools(server: McpServer): void {

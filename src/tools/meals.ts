@@ -11,7 +11,8 @@ import {
   updateRecipe,
   deleteRecipe,
   addRecipeToGroceryList,
-  getMealSittings,
+  getMealSittingsWithProfiles,
+  mealProfileNames,
   createMealSitting,
   findMealSitting,
   updateMealSitting,
@@ -319,7 +320,7 @@ Returns: List of scheduled meals.`,
         const startDate = date ? parseDate(date, config.timezone) : getTodayDate(config.timezone);
         const endDate = dateEnd ? parseDate(dateEnd, config.timezone) : getDateOffset(7, config.timezone);
 
-        const sittings = await getMealSittings({
+        const { sittings, profileLabels } = await getMealSittingsWithProfiles({
           dateMin: startDate,
           // Skylight's date_max leaves out the end day (a one-day query returns nothing),
           // so ask for one day more; the loop below drops anything past endDate.
@@ -349,7 +350,9 @@ Returns: List of scheduled meals.`,
           const categoryId = sitting.relationships?.meal_category?.data?.id;
           const category = categoryId ? (categoryName.get(categoryId) ?? `category ${categoryId}`) : "uncategorised";
           const recipeId = sitting.relationships?.meal_recipe?.data?.id;
-          const what = sitting.attributes.summary?.trim() || (recipeId ? `recipe ${recipeId}` : "(empty)");
+          const base = sitting.attributes.summary?.trim() || (recipeId ? `recipe ${recipeId}` : "(empty)");
+          const forWhom = mealProfileNames(sitting, profileLabels);
+          const what = forWhom.length ? `${base} (for: ${forWhom.join(", ")})` : base;
           const extra: string[] = [];
           if (details) {
             const n = typeof sitting.attributes.note === "string" ? sitting.attributes.note.trim() : "";

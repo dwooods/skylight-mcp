@@ -447,7 +447,7 @@ last captured are recorded in the repository's build log.
 |------|------------|------------------------------|--------|
 | Calendar | Read events and source calendars; create (with profiles), update, delete events | All, delete included (preview first; never subscribed feed events). Removing a synced calendar or a label is local only | Read, create, update and delete live-tested, including repeating events (edit scopes one and all; delete scopes one, future and all), all-day series and a one-off event written to a Google calendar. Not yet live: a series written to Google |
 | Planning | Week overview, conflicts, free slots, bulk meal plan | All four | All four live-tested (conflicts and free slots as reads; the bulk meal plan through the hosted server) |
-| Meals (Plus) | Read categories and meals; create, rename, move, delete one-off meals | All, delete included | Live-tested |
+| Meals (Plus) | Read categories and meals, with who each meal is for; create, rename, move, delete one-off meals | All, delete included | Live-tested, except the "who it is for" read, which is tested only against mocked responses until it is run on a real frame |
 | Recipes (Plus) | Read, create, update, delete recipes; push ingredients to the grocery list | All, delete included | Inherited |
 | Messages | Read; post to everyone or to named profiles (silent by default); edit text and sender (everyone-messages only); delete | All four, delete included | Live-tested |
 | Chores and routines | Read (routines marked, Up for Grabs included); create, update, delete chores; mark one occurrence of a routine or recurring chore done or not done | All, delete included | Read, create and delete live-tested; completion captured live, tool not yet run live; the rest inherited |
@@ -462,7 +462,7 @@ last captured are recorded in the repository's build log.
 Nothing here is hidden behind a flag. It is either unavailable from Skylight or not yet captured.
 
 - **Messages**: sending to specific devices, scheduling, repeating, voice notes, and read-aloud (the option exists on `send_message` but was not tested live). Deleting works but the app has no delete button.
-- **Meals**: editing a repeating meal (refused), repeat rules other than weekly, deleting a meal that was edited on its own after being in a series (refused), saving a meal to the recipe box from the edit form, and Skylight's own "Plan Meals" feature.
+- **Meals**: editing a repeating meal (refused), repeat rules other than weekly, deleting a meal that was edited on its own after being in a series (refused), saving a meal to the recipe box from the edit form, assigning a meal to family members when creating it (the read shows assignments; create sends none, so meals made here are unassigned, and an edit keeps the assignment the meal already has, untested on a real assigned meal), and Skylight's own "Plan Meals" feature.
 - **Task box**: editing or completing tasks, and saving a routine template to it.
 - **Chores**: completing a one-off (non-recurring) chore, Skip, daily or monthly routine schedules (only the weekly format has been captured), and editing a recurring chore's date, time, assignee or stars. Un-completing a routine cannot reduce its `longest_streak`. Whether "this and future" from a later day keeps the earlier days has not been checked (the capture started from the first day).
 - **Profiles**: creating or editing them. Read-only.
@@ -493,7 +493,7 @@ One call returns calendar, chores/tasks, meals and lists, merged per day.
 
 | Tool | Effect | Description |
 |------|--------|-------------|
-| `get_week_overview` | read | Per-day events, chores/tasks (status, assignee, points), meals, overdue chores, conflicts and list summaries in one compact call. Omits owner emails and calendar IDs. |
+| `get_week_overview` | read | Per-day events, chores/tasks (status, assignee, points), meals (every meal in a slot, with who it is for), overdue chores, conflicts and list summaries in one compact call. Omits owner emails and calendar IDs. |
 | `find_conflicts` | read | Timed events that overlap in a date range. All-day events never conflict. A subscribed feed that lists the same event twice (same start, end and title apart from a trailing note such as "Arrive 20 minutes early") is reported separately as a duplicate, not a conflict. |
 | `find_free_slots` | read | Gaps of at least N minutes inside a daily window (default 08:00 to 21:00). |
 | `plan_week_meals` | write | Fill several meal slots at once. `dryRun` previews; occupied slots are skipped, never overwritten; all entries are validated before anything is written, and the text is checked: a placeholder such as `(plan doc URL)` refuses a real write, while an over-long name, a dessert over two words, non-ASCII characters or a cooking step in a note are reported as warnings that never block; optional grocery push for recipes. Entries can carry `note` and `description` (the app's "Instructions or ingredients" field), attached after the meal is created. |
@@ -575,7 +575,7 @@ Meals and recipes need Skylight Plus.
 | Tool | Effect | Description |
 |------|--------|-------------|
 | `get_meal_categories` | read | Breakfast, Lunch, Dinner, Snack and their IDs |
-| `get_meal_sittings` | read | Scheduled meals in a date range, with sitting IDs; `details: true` also prints notes and instructions |
+| `get_meal_sittings` | read | Scheduled meals in a date range, with sitting IDs and who each is for (`for: name, name`; none printed means unassigned); `details: true` also prints notes and instructions |
 | `create_meal_sitting` | write | Schedule a meal on a date (free text or a saved recipe). `repeat: "weekly"` repeats it every week on that weekday. |
 | `update_meal_sitting` | write | Rename, re-categorise, or set the note or the instructions (`description`) of a meal, by sitting ID and its current date; one-offs can also be moved. Repeating meals need `scope` (`one`, `future`, `all`), are preview-first and need `confirm: true`; they cannot be moved. `one` and `future` return a new sitting ID. |
 | `delete_meal_sitting` | destructive | Delete a meal. For a repeating meal, `scope` is `one` (default), `future` or `all` (whole series). Previews unless `confirm: true`; reports success only when Skylight confirms the removal. A meal edited on its own after being in a series is refused. |

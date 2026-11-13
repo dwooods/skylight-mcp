@@ -168,7 +168,8 @@ describe("plan_week_meals", () => {
         patches.push({ url, body: JSON.parse(String(i.body)) as Record<string, unknown> });
         return json({ data: [] });
       }
-      if (url.includes("/meals/sittings") && (i?.method ?? "GET") === "GET" && new Headers(i?.headers).get("Skylight-Api-Version") === "2026-10-15") {
+      if (url.includes("/meals/sittings") && (i?.method ?? "GET") === "GET" && created.date && new Headers(i?.headers).get("Skylight-Api-Version") === "2026-10-15") {
+        // Only after the create: before it the slot is empty, and the pre-write check reads under the same version.
         return json({ data: [{ id: "777", type: "meal_sitting", attributes: { summary: "Baked salmon", instances: ["2026-11-04"], rrule: null, note: "", description: "" }, relationships: { meal_category: { data: { type: "meal_category", id: "12" } }, meal_recipe: { data: null } } }] });
       }
       return route(u, i);
@@ -206,5 +207,42 @@ describe("plan_week_meals", () => {
     expect(out).toContain('no meal category called "Brunch"');
     expect(out).toContain("give a summary or a recipeId");
     expect(posts).toHaveLength(0);
+  });
+});
+
+describe("two dinners on one day (one per person)", () => {
+  const rel = (ids: string[]) => ({
+    meal_category: { data: { type: "meal_category", id: "12" } },
+    meal_recipe: { data: null },
+    profiles: { data: ids.map((id) => ({ type: "category", id })) },
+  });
+  const split = {
+    data: [
+      { id: "s1", type: "meal_sitting", attributes: { summary: "Salmon", instances: ["2026-11-03"] }, relationships: rel(["p1"]) },
+      { id: "s2", type: "meal_sitting", attributes: { summary: "PBJ", instances: ["2026-11-03"] }, relationships: rel(["p2"]) },
+    ],
+    included: [
+      { id: "p1", type: "category", attributes: { label: "Alex" } },
+      { id: "p2", type: "category", attributes: { label: "Sam" } },
+    ],
+  };
+  const withSplit = (u: string, i?: RequestInit) =>
+    String(u).includes("/meals/sittings") && (i?.method ?? "GET") === "GET" ? new Response(JSON.stringify(split), { status: 200 }) : route(u, i);
+
+  it("get_week_overview shows both dinners, not just the last one", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (u: string, i?: RequestInit) => withSplit(u, i)));
+    const { text: out } = await text(await handleMcpRequest(call("get_week_overview", { date: "2026-11-03", days: 1 }), props, "t"));
+    expect(out).toContain("Salmon");
+    expect(out).toContain("PBJ");
+    expect(out).toContain("Alex");
+    expect(out).toContain("Sam");
+  });
+
+  it("plan_week_meals still skips that slot, and says both meals are there", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (u: string, i?: RequestInit) => withSplit(u, i)));
+    const { text: out } = await text(await handleMcpRequest(call("plan_week_meals", { dryRun: true, meals: [{ date: "2026-11-03", summary: "Pasta" }] }), props, "t"));
+    expect(out).toContain("skipped");
+    expect(out).toContain("Salmon");
+    expect(out).toContain("PBJ");
   });
 });

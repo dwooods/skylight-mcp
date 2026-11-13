@@ -55,6 +55,10 @@ export interface MealSittingResource {
     meal_category?: {
       data: { type: string; id: string } | null;
     };
+    /** Who the meal is for (Skylight's "Assign Meals to Profiles", 2026-11-12). Empty or absent: unassigned. */
+    profiles?: {
+      data: Array<{ type: string; id: string }>;
+    };
   };
 }
 
@@ -74,7 +78,7 @@ interface MealRecipeResponse {
 
 interface MealSittingsResponse {
   data: MealSittingResource[];
-  included?: MealRecipeResource[];
+  included?: Array<{ id: string; type: string; attributes?: Record<string, unknown> }>;
 }
 
 /**
@@ -208,6 +212,37 @@ export async function getMealSittings(
     params
   );
   return response.data;
+}
+
+/**
+ * Meals for a range, with who each one is for. Reads under the API version the
+ * Skylight apps send and asks for `include=profiles`, which is how the app reads
+ * them (captured 2026-11-12). `getMealSittings` above is left as it was, because
+ * the library entry reads through it and its output is a public contract.
+ */
+export async function getMealSittingsWithProfiles(
+  options: GetMealSittingsOptions = {}
+): Promise<{ sittings: MealSittingResource[]; profileLabels: Map<string, string> }> {
+  const params: Record<string, string> = { include: "meal_category,meal_recipe,profiles" };
+  if (options.dateMin) params.date_min = options.dateMin;
+  if (options.dateMax) params.date_max = options.dateMax;
+  const response = await getClient().request<MealSittingsResponse>("/api/frames/{frameId}/meals/sittings", {
+    method: "GET",
+    params,
+    apiVersion: MEAL_EDIT_API_VERSION,
+  });
+  const profileLabels = new Map<string, string>();
+  for (const inc of response.included ?? []) {
+    const label = inc.attributes?.label;
+    if (inc.type === "category" && typeof label === "string" && label.trim()) profileLabels.set(inc.id, label.trim());
+  }
+  return { sittings: response.data, profileLabels };
+}
+
+/** Names of the profiles a meal is assigned to; empty when it is unassigned. An id with no label reads "someone". */
+export function mealProfileNames(sitting: MealSittingResource, profileLabels: Map<string, string>): string[] {
+  const ids = sitting.relationships?.profiles?.data ?? [];
+  return ids.map((p) => profileLabels.get(p.id) ?? "someone");
 }
 
 export interface CreateMealSittingOptions {

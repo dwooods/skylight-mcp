@@ -71,6 +71,41 @@ describe("meal tools against Skylight's real field names", () => {
     expect(out).not.toContain("Nov 20"); // out of range instance filtered
   });
 
+  it("get_meal_sittings lists every dinner on a day and names who each is for, reading under the app's API version", async () => {
+    const seen: Array<{ url: string; version: string | null }> = [];
+    const rel = (ids: string[]) => ({
+      meal_category: { data: { type: "meal_category", id: "12" } },
+      meal_recipe: { data: null },
+      profiles: { data: ids.map((id) => ({ type: "category", id })) },
+    });
+    const sittings = {
+      data: [
+        { id: "s1", type: "meal_sitting", attributes: { summary: "Salmon", instances: ["2026-11-17"] }, relationships: rel(["p1", "p2"]) },
+        { id: "s2", type: "meal_sitting", attributes: { summary: "PBJ", instances: ["2026-11-17"] }, relationships: rel(["p3"]) },
+        { id: "s3", type: "meal_sitting", attributes: { summary: "Tacos", instances: ["2026-11-18"] }, relationships: rel([]) },
+      ],
+      included: [
+        { id: "p1", type: "category", attributes: { label: "Alex" } },
+        { id: "p2", type: "category", attributes: { label: "Jo" } },
+        { id: "p3", type: "category", attributes: { label: "Sam" } },
+      ],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (String(url).includes("/meals/sittings")) seen.push({ url: String(url), version: new Headers(init?.headers).get("Skylight-Api-Version") });
+        return new Response(JSON.stringify(String(url).includes("/categories") ? categories : sittings), { status: 200 });
+      })
+    );
+    const out = await text(await handleMcpRequest(call("get_meal_sittings", { date: "2026-11-16", dateEnd: "2026-11-19" }), props, "t"));
+    expect(out).toContain("Dinner: Salmon (for: Alex, Jo)");
+    expect(out).toContain("Dinner: PBJ (for: Sam)");
+    expect(out).toContain("Dinner: Tacos [sitting ID: s3]"); // unassigned: no "for" text
+    expect(seen).toHaveLength(1);
+    expect(new URL(seen[0]!.url).searchParams.get("include")).toContain("profiles");
+    expect(seen[0]!.version).toBe("2026-10-15");
+  });
+
   it("create_meal_sitting sends summary as free text and reads the list envelope back", async () => {
     let body: Record<string, unknown> = {};
     vi.stubGlobal(
