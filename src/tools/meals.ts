@@ -24,6 +24,7 @@ import {
 } from "../api/endpoints/meals.js";
 import { parseDate, formatDateForDisplay, getTodayDate, getDateOffset } from "../utils/dates.js";
 import { addDays } from "../utils/schedule.js";
+import { resolveProfileIds } from "../api/endpoints/categories.js";
 import { formatErrorForMcp } from "../utils/errors.js";
 import { getConfig } from "../config.js";
 import { formatAttribute } from "../utils/redact.js";
@@ -398,6 +399,7 @@ Parameters:
 - summary: What the meal is, as free text, e.g. "Thai green curry". No recipe needed.
 - recipeId: A saved recipe to link instead of, or as well as, a summary.
 - repeat: "weekly" makes it repeat every week on the same weekday as date, with no end.
+- profiles: who the meal is for, by profile name (exact, case-insensitive), e.g. ["Alex"]. Several meals can share a day and category, one per person. Omit for an unassigned meal. An unknown name changes nothing and lists the valid names.
 
 Give at least one of summary or recipeId.
 
@@ -408,8 +410,9 @@ Returns: The created meal sitting.`,
       summary: z.string().max(200).optional().describe("Meal name as free text, e.g. 'Sheet-pan fajitas'"),
       recipeId: z.string().optional().describe("Saved recipe ID to link"),
       repeat: z.enum(["weekly"]).optional().describe("Repeat every week on date's weekday, no end date"),
+      profiles: z.array(z.string().min(1)).max(10).optional().describe("Profile names the meal is for"),
     },
-    async ({ date, mealCategoryId, summary, recipeId, repeat }) => {
+    async ({ date, mealCategoryId, summary, recipeId, repeat, profiles }) => {
       try {
         if (!summary?.trim() && !recipeId) {
           return {
@@ -420,12 +423,14 @@ Returns: The created meal sitting.`,
         const config = getConfig();
         const mealDate = parseDate(date, config.timezone);
 
+        const assigned = profiles?.length ? await resolveProfileIds(profiles) : undefined;
         const sitting = await createMealSitting({
           date: mealDate,
           mealCategoryId,
           summary: summary?.trim() || undefined,
           recipeId,
           repeat,
+          profileIds: assigned?.ids,
         });
 
         const what = sitting.attributes.summary?.trim() || summary?.trim() || `recipe ${recipeId}`;
@@ -433,7 +438,7 @@ Returns: The created meal sitting.`,
           content: [
             {
               type: "text" as const,
-              text: `Scheduled "${what}" for ${formatDateForDisplay(mealDate)}${repeat ? ", repeating weekly" : ""} (sitting ID: ${sitting.id})`,
+              text: `Scheduled "${what}" for ${formatDateForDisplay(mealDate)}${repeat ? ", repeating weekly" : ""}${assigned ? ` for ${assigned.labels.join(", ")}` : ""} (sitting ID: ${sitting.id})`,
             },
           ],
         };
@@ -463,6 +468,7 @@ Parameters:
 - note: new note (family notes, caveats)
 - description: the "Instructions or ingredients" field (recipe link, steps)
 - mealCategoryId: move to another meal category (use get_meal_categories)
+- profiles: who the meal is for, by profile name; replaces the current list. [] makes it unassigned. Omit to keep who it is for.
 
 - scope: required for a repeating meal. "one" changes only that date, which becomes a standalone meal with a NEW sitting ID that cannot be edited or deleted here afterwards. "future" changes that date and every later one: the series splits and the later part gets a NEW sitting ID. "all" changes every occurrence, past ones included, keeping the series' start.
 - confirm: repeating meals only. Must be true to apply; without it nothing changes and the effect is shown.
@@ -478,14 +484,15 @@ Returns: What changed.`,
       note: z.string().max(500).optional().describe("New note"),
       description: z.string().max(2000).optional().describe("New instructions or ingredients text (limit not confirmed against Skylight)"),
       mealCategoryId: z.string().optional().describe("New meal category ID"),
+      profiles: z.array(z.string().min(1)).max(10).optional().describe("Profile names the meal is for; [] unassigns"),
       scope: z.enum(["one", "future", "all"]).optional().describe("Repeating meals only: one, future or all"),
       confirm: z.boolean().optional().describe("Repeating meals only: set true to apply. Default: preview only."),
     },
-    async ({ sittingId, date, newDate, summary, note, description, mealCategoryId, scope, confirm }) => {
+    async ({ sittingId, date, newDate, summary, note, description, mealCategoryId, profiles, scope, confirm }) => {
       try {
-        if (newDate === undefined && summary === undefined && note === undefined && description === undefined && mealCategoryId === undefined) {
+        if (newDate === undefined && summary === undefined && note === undefined && description === undefined && mealCategoryId === undefined && profiles === undefined) {
           return {
-            content: [{ type: "text" as const, text: "Nothing to change. Give newDate, summary, note, description or mealCategoryId." }],
+            content: [{ type: "text" as const, text: "Nothing to change. Give newDate, summary, note, description, mealCategoryId or profiles." }],
             isError: true,
           };
         }
@@ -499,6 +506,7 @@ Returns: What changed.`,
         const config = getConfig();
         const current = parseDate(date, config.timezone);
         const target = newDate ? parseDate(newDate, config.timezone) : undefined;
+        const assigned = profiles === undefined ? undefined : profiles.length ? await resolveProfileIds(profiles) : { ids: [] as string[], labels: [] as string[] };
 
         const existing = await findMealSitting(sittingId, current);
         if (!existing) {
@@ -521,6 +529,7 @@ Returns: What changed.`,
           if (note !== undefined) out.push("note updated");
           if (description !== undefined) out.push("instructions updated");
           if (mealCategoryId !== undefined) out.push(`category set to ${mealCategoryId}`);
+          if (assigned) out.push(assigned.labels.length ? `now for ${assigned.labels.join(", ")}` : "unassigned");
           return out;
         };
 
@@ -566,6 +575,7 @@ Returns: What changed.`,
             note,
             description,
             mealCategoryId,
+            profileIds: assigned?.ids,
             scope,
             seriesStart,
           });
@@ -599,6 +609,7 @@ Returns: What changed.`,
           note,
           description,
           mealCategoryId,
+          profileIds: assigned?.ids,
         });
 
         const changes: string[] = [];
@@ -607,6 +618,7 @@ Returns: What changed.`,
         if (note !== undefined) changes.push("note updated");
         if (description !== undefined) changes.push("instructions updated");
         if (mealCategoryId !== undefined) changes.push(`category set to ${mealCategoryId}`);
+        if (assigned) changes.push(assigned.labels.length ? `now for ${assigned.labels.join(", ")}` : "unassigned");
         return {
           content: [{ type: "text" as const, text: `Updated meal (sitting ID: ${sittingId}): ${changes.join("; ")}.` }],
         };

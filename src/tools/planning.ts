@@ -14,6 +14,7 @@
 import { z } from "zod";
 import { checkMealText } from "../utils/meal-text.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { resolveProfileIds } from "../api/endpoints/categories.js";
 import { getCalendarEvents } from "../api/endpoints/calendar.js";
 import { getChores, isChoreDone } from "../api/endpoints/chores.js";
 import { getListWithItems, getLists } from "../api/endpoints/lists.js";
@@ -60,11 +61,15 @@ function resolveRange(date: string | undefined, dateEnd: string | undefined, day
 }
 
 /** Meals for a range, keyed by "YYYY-MM-DD|Category". Null if the account has no meal planning. */
-async function loadMeals(start: string, end: string): Promise<{ byKey: Map<string, string>; categories: MealCategoryResource[] } | null> {
+async function loadMeals(
+  start: string,
+  end: string
+): Promise<{ byKey: Map<string, string>; slots: Map<string, Array<{ what: string; ids: string[] }>>; categories: MealCategoryResource[] } | null> {
   try {
     const [categories, found] = await Promise.all([getMealCategories(), getMealSittingsWithProfiles({ dateMin: start, dateMax: addDays(end, 1) })]);
     const name = new Map(categories.map((c) => [c.id, mealCategoryName(c)]));
     const byKey = new Map<string, string>();
+    const slots = new Map<string, Array<{ what: string; ids: string[] }>>();
     for (const s of found.sittings) {
       const cat = name.get(s.relationships?.meal_category?.data?.id ?? "") ?? "Meal";
       const what = describeSitting(s, found.profileLabels);
@@ -74,9 +79,12 @@ async function loadMeals(start: string, end: string): Promise<{ byKey: Map<strin
         const key = `${d}|${cat}`;
         const prior = byKey.get(key);
         byKey.set(key, prior ? `${prior}; ${what}` : what);
+        const list = slots.get(key) ?? [];
+        list.push({ what, ids: (s.relationships?.profiles?.data ?? []).map((p) => p.id) });
+        slots.set(key, list);
       }
     }
-    return { byKey, categories };
+    return { byKey, slots, categories };
   } catch {
     return null; // no Plus, or endpoint unavailable: the overview just omits meals
   }
@@ -268,10 +276,11 @@ Use for "when could we do X this week?" questions.`,
     "plan_week_meals",
     `Schedule several meals in one call - Plus subscription required.
 
-Each entry names a date, a meal (category name like "Dinner", default Dinner), and either a free-text summary ("Thai green curry") or a saved recipeId. A slot that already has a meal is skipped and reported, never overwritten. Use dryRun first to see what would change.
+Each entry names a date, a meal (category name like "Dinner", default Dinner), and either a free-text summary ("Thai green curry") or a saved recipeId. A slot that already has a meal is skipped and reported, never overwritten. With profiles, a slot is skipped only when an existing meal there is unassigned or shares one of those people; one dinner per person can sit on the same day. Use dryRun first to see what would change.
 
 Parameters:
-- meals: list of { date, meal?, summary?, recipeId?, note?, description? }
+- meals: list of { date, meal?, summary?, recipeId?, note?, description?, profiles? }
+  - profiles: who the meal is for, by profile name; an unknown name stops the whole call before anything is written
   - note: family notes shown on the meal (500 characters max)
   - description: the app's "Instructions or ingredients" field (2000 characters max)
   note and description are written with a second request per meal after it is created; if that second step fails the reply says the meal was added but its note or instructions were not.
@@ -287,6 +296,7 @@ Parameters:
             recipeId: z.string().optional().describe("Saved recipe ID"),
             note: z.string().max(500).optional().describe("Family notes for the meal"),
             description: z.string().max(2000).optional().describe("Instructions or ingredients text"),
+            profiles: z.array(z.string().min(1)).max(10).optional().describe("Profile names the meal is for"),
           })
         )
         .min(1)
@@ -301,7 +311,7 @@ Parameters:
         const byName = new Map(categories.map((c) => [mealCategoryName(c).toLowerCase(), c]));
 
         // Resolve and validate everything before writing anything.
-        const resolved: Array<{ date: string; category: MealCategoryResource; summary?: string; recipeId?: string; note?: string; description?: string; label: string }> = [];
+        const resolved: Array<{ date: string; category: MealCategoryResource; summary?: string; recipeId?: string; note?: string; description?: string; label: string; profileIds?: string[]; profileLabels?: string[] }> = [];
         const problems: string[] = [];
         for (const m of meals) {
           const date = parseDate(m.date, tz);
@@ -314,7 +324,18 @@ Parameters:
             problems.push(`${m.date} ${mealCategoryName(category)}: give a summary or a recipeId`);
             continue;
           }
+          let assigned: { ids: string[]; labels: string[] } | undefined;
+          if (m.profiles?.length) {
+            try {
+              assigned = await resolveProfileIds(m.profiles);
+            } catch (e) {
+              problems.push(`${m.date} ${mealCategoryName(category)}: ${e instanceof Error ? e.message : String(e)}`);
+              continue;
+            }
+          }
           resolved.push({
+            profileIds: assigned?.ids,
+            profileLabels: assigned?.labels,
             date,
             category,
             summary: m.summary?.trim() || undefined,
@@ -340,25 +361,37 @@ Parameters:
         const dates = resolved.map((r) => r.date).sort();
         const existing = await loadMeals(dates[0], dates[dates.length - 1]);
         const taken = existing?.byKey ?? new Map<string, string>();
+        const slots = existing?.slots ?? new Map<string, Array<{ what: string; ids: string[] }>>();
+        // A planned meal blocks on any meal in its slot, unless it names people: then only an unassigned meal or one sharing a person blocks.
+        const blocker = (key: string, ids?: string[]): string | undefined => {
+          const there = slots.get(key) ?? [];
+          if (!ids?.length) return taken.get(key);
+          const hit = there.filter((x) => x.ids.length === 0 || x.ids.some((i) => ids.includes(i)));
+          return hit.length ? hit.map((x) => x.what).join("; ") : undefined;
+        };
+        const remember = (key: string, label: string, ids?: string[]) => {
+          taken.set(key, taken.has(key) ? `${taken.get(key)}; ${label}` : label);
+          slots.set(key, [...(slots.get(key) ?? []), { what: label, ids: ids ?? [] }]);
+        };
 
         const lines: string[] = [];
         let written = 0;
         for (const r of resolved) {
           const key = `${r.date}|${mealCategoryName(r.category)}`;
-          const current = taken.get(key);
+          const current = blocker(key, r.profileIds);
           if (current) {
             lines.push(`- ${formatDay(r.date)} ${mealCategoryName(r.category)}: skipped, already "${current}"`);
             continue;
           }
           if (dryRun) {
             const withText = [r.note ? "note" : "", r.description ? "instructions" : ""].filter(Boolean).join(" and ");
-            lines.push(`- ${formatDay(r.date)} ${mealCategoryName(r.category)}: would add "${r.label}"${withText ? ` with ${withText}` : ""}`);
+            lines.push(`- ${formatDay(r.date)} ${mealCategoryName(r.category)}: would add "${r.label}"${r.profileLabels ? ` for ${r.profileLabels.join(", ")}` : ""}${withText ? ` with ${withText}` : ""}`);
             continue;
           }
           try {
-            const sitting = await createMealSitting({ date: r.date, mealCategoryId: r.category.id, summary: r.summary, recipeId: r.recipeId });
+            const sitting = await createMealSitting({ date: r.date, mealCategoryId: r.category.id, summary: r.summary, recipeId: r.recipeId, profileIds: r.profileIds });
             written++;
-            taken.set(key, r.label);
+            remember(key, r.label, r.profileIds);
             let extra = "";
             if (addRecipesToGroceryList && r.recipeId) {
               try {
@@ -378,7 +411,7 @@ Parameters:
                 extra += `, NOTE/INSTRUCTIONS NOT SET (meal was added): ${e instanceof Error ? e.message : String(e)}`;
               }
             }
-            lines.push(`- ${formatDay(r.date)} ${mealCategoryName(r.category)}: added "${r.label}" [sitting ID: ${sitting.id}]${extra}`);
+            lines.push(`- ${formatDay(r.date)} ${mealCategoryName(r.category)}: added "${r.label}"${r.profileLabels ? ` for ${r.profileLabels.join(", ")}` : ""} [sitting ID: ${sitting.id}]${extra}`);
           } catch (e) {
             lines.push(`- ${formatDay(r.date)} ${mealCategoryName(r.category)}: FAILED "${r.label}": ${e instanceof Error ? e.message : String(e)}`);
           }

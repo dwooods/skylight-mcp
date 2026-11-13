@@ -462,7 +462,7 @@ last captured are recorded in the repository's build log.
 Nothing here is hidden behind a flag. It is either unavailable from Skylight or not yet captured.
 
 - **Messages**: sending to specific devices, scheduling, repeating, voice notes, and read-aloud (the option exists on `send_message` but was not tested live). Deleting works but the app has no delete button.
-- **Meals**: editing a repeating meal (refused), repeat rules other than weekly, deleting a meal that was edited on its own after being in a series (refused), saving a meal to the recipe box from the edit form, assigning a meal to family members when creating it (the read shows assignments; create sends none, so meals made here are unassigned, and an edit keeps the assignment the meal already has, untested on a real assigned meal), and Skylight's own "Plan Meals" feature.
+- **Meals**: editing a repeating meal (refused), repeat rules other than weekly, deleting a meal that was edited on its own after being in a series (refused), saving a meal to the recipe box from the edit form, assigning a meal to a label or anything but a profile (`profiles` takes profile names only; the typed argument is tested only against mocked responses, not yet on a real frame), assigning every profile at once (Skylight has no "everyone" option, so name them), and Skylight's own "Plan Meals" feature.
 - **Task box**: editing or completing tasks, and saving a routine template to it.
 - **Chores**: completing a one-off (non-recurring) chore, Skip, daily or monthly routine schedules (only the weekly format has been captured), and editing a recurring chore's date, time, assignee or stars. Un-completing a routine cannot reduce its `longest_streak`. Whether "this and future" from a later day keeps the earlier days has not been checked (the capture started from the first day).
 - **Profiles**: creating or editing them. Read-only.
@@ -576,8 +576,8 @@ Meals and recipes need Skylight Plus.
 |------|--------|-------------|
 | `get_meal_categories` | read | Breakfast, Lunch, Dinner, Snack and their IDs |
 | `get_meal_sittings` | read | Scheduled meals in a date range, with sitting IDs and who each is for (`for: name, name`; none printed means unassigned); `details: true` also prints notes and instructions |
-| `create_meal_sitting` | write | Schedule a meal on a date (free text or a saved recipe). `repeat: "weekly"` repeats it every week on that weekday. |
-| `update_meal_sitting` | write | Rename, re-categorise, or set the note or the instructions (`description`) of a meal, by sitting ID and its current date; one-offs can also be moved. Repeating meals need `scope` (`one`, `future`, `all`), are preview-first and need `confirm: true`; they cannot be moved. `one` and `future` return a new sitting ID. |
+| `create_meal_sitting` | write | Schedule a meal on a date (free text or a saved recipe). `repeat: "weekly"` repeats it every week on that weekday. `profiles` names who it is for (exact profile names; an unknown name changes nothing); one meal per person can share a day and category. Assignment is tested only against mocked responses. |
+| `update_meal_sitting` | write | Rename, re-categorise, or set the note or the instructions (`description`) of a meal, by sitting ID and its current date; one-offs can also be moved. `profiles` replaces who it is for (`[]` unassigns; omitted keeps it). Repeating meals need `scope` (`one`, `future`, `all`), are preview-first and need `confirm: true`; they cannot be moved. `one` and `future` return a new sitting ID. |
 | `delete_meal_sitting` | destructive | Delete a meal. For a repeating meal, `scope` is `one` (default), `future` or `all` (whole series). Previews unless `confirm: true`; reports success only when Skylight confirms the removal. A meal edited on its own after being in a series is refused. |
 | `get_recipes` / `get_recipe` | read | Browse saved recipes |
 | `create_recipe` / `update_recipe` | write | Add or change a recipe |
