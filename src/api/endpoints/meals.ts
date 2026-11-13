@@ -253,6 +253,8 @@ export interface CreateMealSittingOptions {
   recipeId?: string;
   /** Repeat weekly on the weekday of `date`. Only this shape was captured. */
   repeat?: "weekly";
+  /** Profile (category) ids the meal is for. Empty or missing: unassigned. Sends the app's whole form under MEAL_EDIT_API_VERSION. */
+  profileIds?: string[];
 }
 
 const WEEKDAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;
@@ -287,9 +289,11 @@ export async function createMealSitting(
     body.meal_recipe_id = options.recipeId;
   }
 
-  if (options.repeat === "weekly") {
-    // A repeating create sends the web app's whole form (captured 2026-11-01).
-    // Not verified live from this code path: the body shape and API version.
+  const profileIds = [...new Set(options.profileIds ?? [])];
+  if (options.repeat === "weekly" || profileIds.length > 0) {
+    // A repeating or assigned create sends the web app's whole form (repeat captured 2026-11-01,
+    // assignment 2026-11-12 under API version 2026-10-15). Not verified live from this code path.
+    for (const id of profileIds) if (!/^\d{1,12}$/.test(id)) throw new Error("Profile IDs must be numeric.");
     const form = {
       date: options.date,
       summary: options.summary ?? "",
@@ -297,17 +301,22 @@ export async function createMealSitting(
       note: "",
       meal_category_id: options.mealCategoryId,
       meal_recipe_id: options.recipeId ?? null,
-      profile_ids: [] as string[],
-      rrule: weeklyRrule(options.date),
+      profile_ids: profileIds,
+      rrule: options.repeat === "weekly" ? weeklyRrule(options.date) : null,
       add_to_grocery_list: false,
       saveToRecipeBox: false,
     };
     const created = await client.request<{ data: MealSittingResource | MealSittingResource[] }>(
       "/api/frames/{frameId}/meals/sittings",
-      { method: "POST", body: form, apiVersion: MEAL_EDIT_API_VERSION }
+      {
+        method: "POST",
+        body: form,
+        apiVersion: MEAL_EDIT_API_VERSION,
+        ...(profileIds.length > 0 ? { params: { include: "meal_category,meal_recipe,profiles" } } : {}),
+      }
     );
     const first = Array.isArray(created.data) ? created.data[0] : created.data;
-    if (!first) throw new Error("Skylight returned an empty response when creating the repeating meal");
+    if (!first) throw new Error("Skylight returned an empty response when creating the meal");
     return first;
   }
 
@@ -439,6 +448,8 @@ export interface UpdateMealSittingOptions {
   /** The "Instructions or ingredients" field in the app. */
   description?: string;
   mealCategoryId?: string;
+  /** Replace who the meal is for. Omitted: keep as is. Empty array: unassign. */
+  profileIds?: string[];
   /** Required for a repeating meal: which occurrences the change applies to. */
   scope?: MealEditScope;
   /** For scope "all": the series' original start date, from findSeriesStart. */
@@ -491,9 +502,10 @@ export async function updateMealSitting(options: UpdateMealSittingOptions): Prom
     description: options.description ?? (typeof a.description === "string" ? a.description : ""),
     meal_category_id: options.mealCategoryId ?? existing.relationships?.meal_category?.data?.id ?? null,
     meal_recipe_id: existing.relationships?.meal_recipe?.data?.id ?? null,
-    profile_ids: ((existing.relationships as { profiles?: { data?: Array<{ id: string }> } } | undefined)?.profiles?.data ?? []).map(
-      (p) => p.id
-    ),
+    profile_ids:
+      options.profileIds !== undefined
+        ? [...new Set(options.profileIds)]
+        : ((existing.relationships as { profiles?: { data?: Array<{ id: string }> } } | undefined)?.profiles?.data ?? []).map((p) => p.id),
     saveToRecipeBox: false,
   };
   const params: Record<string, string> = instanceQuery(date);
