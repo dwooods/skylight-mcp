@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Breakage canary for a host scheduler (`canary/`, `Dockerfile`): a one-shot read-only check of the Skylight API (profiles, a Dinner meal category, this week's meals and calendar, calendar sources) that prints one fixed-vocabulary line and exits 0 or 1, so a scheduler (for example a Synology Task Scheduler task that emails on a non-zero exit) can alert you. Not an MCP tool; no tool changes. Image build not yet run on a real Docker host.
+- Breakage canary for a host scheduler (`canary/`, `Dockerfile`): a one-shot read-only check of the Skylight API (profiles, a Dinner meal category, this week's meals and calendar, calendar sources) that prints one fixed-vocabulary line and exits 0 or 1, so a scheduler (for example a Synology Task Scheduler task that emails on a non-zero exit) can alert you. Not an MCP tool; no tool changes. Image built and run on a Synology NAS under Docker; a failure email was proven end to end.
 
 ### Changed
 - Docs only: README live-status for meal `profiles` updated. Run live on 2026-11-13 through the hosted Worker (1.21.0): weekly create with a profile, a whole-series edit to two people, and a `future` split giving later dates a different person, each read back, then deleted. Not run live: scope `one` with `profiles` on a repeating meal (it detaches the occurrence, which this server cannot delete).
