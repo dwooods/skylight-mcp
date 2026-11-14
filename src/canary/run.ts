@@ -13,7 +13,8 @@
  * The sign-in is the CLI's own (`skylight-mcp auth login`), stored in XDG_CONFIG_HOME.
  *
  *   node dist/canary/run.js --once   run one cycle now and exit (0 pass, 1 fail)
- *   node dist/canary/run.js          run now, then every day at CANARY_TIME
+ *   node dist/canary/run.js          run every day at CANARY_TIME (and at start, but only if
+ *                                    today's CANARY_TIME has already passed)
  */
 
 import { pathToFileURL } from "node:url";
@@ -22,7 +23,7 @@ import { createSkylight, type Skylight } from "../lib.js";
 import { addDays, dateInZone } from "../utils/schedule.js";
 import { runChecks, summarize } from "./checks.js";
 import { parsePingUrl, sendPing } from "./ping.js";
-import { nextRunAt, parseClock } from "./schedule.js";
+import { nextRunAt, parseClock, runAtStart } from "./schedule.js";
 
 export interface CycleDeps {
   skylight: Skylight;
@@ -72,12 +73,16 @@ async function main(): Promise<void> {
   }
 
   // Loop forever. A cycle never throws (checks catch their own errors), but guard anyway.
+  let skipFirst = !runAtStart(Date.now(), clock, timezone);
   for (;;) {
-    try {
-      await runCycle(deps);
-    } catch {
-      deps.log("[canary] cycle crashed");
+    if (!skipFirst) {
+      try {
+        await runCycle(deps);
+      } catch {
+        deps.log("[canary] cycle crashed");
+      }
     }
+    skipFirst = false;
     const at = nextRunAt(Date.now(), clock, timezone);
     deps.log(`[canary] next run in ${Math.round((at - Date.now()) / 60_000)} minutes`);
     await new Promise((resolve) => setTimeout(resolve, Math.max(1_000, at - Date.now())));

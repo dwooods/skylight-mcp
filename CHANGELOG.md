@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Canary container no longer pings at start-up when today's run time is still ahead; it waits for `CANARY_TIME` (a late start still catches up). Matters for hosts that power on early and off at night.
+
 ### Added
 - Breakage canary for an always-on host (`canary/`, `Dockerfile`): a daily read-only check of the Skylight API through the library entry (profiles, a Dinner meal category, this week's meals and calendar, calendar sources), reporting to a healthchecks.io check: a plain ping on a pass, a `/fail` ping with one fixed-vocabulary line on a failure or an expired sign-in, and the service's own alert when the ping stops. The ping address is a secret held in the environment, limited to hc-ping.com, never logged. Not an MCP tool; no tool changes. Image build not yet run on a real Docker host; the code path was run from a build in a temporary directory.
 

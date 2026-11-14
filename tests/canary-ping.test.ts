@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { PingConfigError, parsePingUrl, sendPing } from "../src/canary/ping.js";
-import { nextRunAt, parseClock } from "../src/canary/schedule.js";
+import { nextRunAt, parseClock, runAtStart } from "../src/canary/schedule.js";
 
 const UUID = "123e4567-e89b-12d3-a456-426614174000";
 const GOOD = `https://hc-ping.com/${UUID}`;
@@ -87,6 +87,17 @@ describe("daily schedule", () => {
     expect(nextRunAt(at("2037-03-03T18:00:00Z"), "09:30", tz)).toBe(at("2037-03-04T17:30:00Z"));
     // Exactly at the time: strictly after, so tomorrow.
     expect(nextRunAt(at("2037-03-03T17:30:00Z"), "09:30", tz)).toBe(at("2037-03-04T17:30:00Z"));
+  });
+
+  it("runs at start only once today's run time has passed", () => {
+    const tz = "America/Los_Angeles";
+    const at = (iso: string) => Date.parse(iso);
+    // NAS boots 07:00 PST (15:00Z): wait for 09:30, no early ping.
+    expect(runAtStart(at("2037-03-03T15:00:00Z"), "09:30", tz)).toBe(false);
+    // Boots 10:00 PST (18:00Z): catch up now.
+    expect(runAtStart(at("2037-03-03T18:00:00Z"), "09:30", tz)).toBe(true);
+    // Exactly at the time counts as due.
+    expect(runAtStart(at("2037-03-03T17:30:00Z"), "09:30", tz)).toBe(true);
   });
 
   it("follows daylight saving", () => {

@@ -21,7 +21,7 @@ the checks above.
 
 ## Set up
 
-1. **healthchecks.io.** Create a check: period 1 day, grace time 3 hours, email to you. Copy
+1. **healthchecks.io.** Create a check: a cron schedule such as `30 9 * * *` in your timezone (or period 1 day), grace time 2-3 hours, email to you. Copy
    its ping address (`https://hc-ping.com/<uuid>`). It is a secret: anyone holding it can fake
    a pass. Keep it out of this repository, chat and logs. In the check's email integration,
    look for an option to skip the "back up" email if you only want failure emails.
@@ -61,4 +61,18 @@ healthchecks emails you, which is the point.
 | `CANARY_TIME` | local `HH:MM` of the daily run, default `09:30` |
 | `CANARY_DINNER_NAME` | meal category that must exist, default `Dinner` |
 
-The container also runs once when it starts.
+The container runs once a day at `CANARY_TIME`. When it starts it waits for that time; it runs
+at once only if today's time has already passed (a late boot). So a NAS that powers on at 07:00
+does not ping before the run time.
+
+## If the host is off overnight
+
+Set the healthchecks schedule to a cron expression in your timezone instead of "1 day", for
+example `30 9 * * *` with the same zone as `SKYLIGHT_TIMEZONE` and a 2-hour grace. A missed run
+then alerts the same morning, not a day later. Pick a `CANARY_TIME` a little after the host is
+normally up (the container needs the folder unlocked and Docker started).
+
+If the credential folder is on an encrypted shared folder that stays locked after each boot,
+you must unlock it every morning before the run, or the check fails (`sign-in needed`) or the
+container does not start. Decide whether that daily step is acceptable; the alternative is a
+private, permission-restricted folder that is not encrypted at rest.

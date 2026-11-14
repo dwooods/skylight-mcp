@@ -16,3 +16,12 @@ export function nextRunAt(now: number, clock: string, timeZone: string): number 
   }
   throw new Error("Could not compute the next run time.");
 }
+
+/**
+ * Whether a container that has just started should run a cycle at once. Only when today's run
+ * time has already passed (a late boot catches up); before it, wait for the clock, so a NAS that
+ * boots at 07:00 does not ping before the run time and then ping again at it.
+ */
+export function runAtStart(now: number, clock: string, timeZone: string): boolean {
+  return zonedToEpoch(dateInZone(now, timeZone), clock, timeZone) <= now;
+}
