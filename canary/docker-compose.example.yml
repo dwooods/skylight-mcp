@@ -19,7 +19,7 @@ services:
     environment:
       SKYLIGHT_FRAME_ID: "${SKYLIGHT_FRAME_ID}"       # digits, from your Skylight URLs
       SKYLIGHT_TIMEZONE: "${SKYLIGHT_TIMEZONE}"       # for example America/Los_Angeles
-      # CANARY_DINNER_NAME: "Dinner"                # meal category that must exist (default Dinner)
+      CANARY_DINNER_NAME: "${CANARY_DINNER_NAME:-Dinner}"   # meal category that must exist
     volumes:
       # A private folder, ideally on an encrypted shared folder. Holds the sign-in, which is
       # the full Skylight login: anyone who can read it can use the account.
