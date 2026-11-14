@@ -7,9 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Breakage canary for an always-on host (`canary/`, `Dockerfile`): a daily read-only check of the Skylight API through the library entry (profiles, a Dinner meal category, this week's meals and calendar, calendar sources), reporting to a healthchecks.io check: a plain ping on a pass, a `/fail` ping with one fixed-vocabulary line on a failure or an expired sign-in, and the service's own alert when the ping stops. The ping address is a secret held in the environment, limited to hc-ping.com, never logged. Not an MCP tool; no tool changes. Image build not yet run on a real Docker host; the code path was run from a build in a temporary directory.
-
 ### Changed
 - Docs only: README live-status for meal `profiles` updated. Run live on 2026-11-13 through the hosted Worker (1.21.0): weekly create with a profile, a whole-series edit to two people, and a `future` split giving later dates a different person, each read back, then deleted. Not run live: scope `one` with `profiles` on a repeating meal (it detaches the occurrence, which this server cannot delete).
 
