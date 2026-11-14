@@ -1,12 +1,12 @@
 # Example stack for the breakage canary. Copy it out of the repo and keep the real values
-# (frame id, ping address) in the stack's environment variables (Portainer: "Environment
+# (frame id, timezone) in the stack's environment variables (Portainer: "Environment
 # variables"), never in a file in this repository.
 services:
   skylight-canary:
     build:
       context: ..            # the repository root, where the Dockerfile is
     container_name: skylight-canary
-    restart: unless-stopped
+    restart: unless-stopped   # idles (tail -f /dev/null); the host scheduler runs the check with docker exec
     init: true
     user: "1000:1000"        # the uid:gid that owns the credential folder below
     read_only: true
@@ -19,8 +19,7 @@ services:
     environment:
       SKYLIGHT_FRAME_ID: "${SKYLIGHT_FRAME_ID}"       # digits, from your Skylight URLs
       SKYLIGHT_TIMEZONE: "${SKYLIGHT_TIMEZONE}"       # for example America/Los_Angeles
-      CANARY_PING_URL: "${CANARY_PING_URL}"           # https://hc-ping.com/<check uuid>; a secret
-      CANARY_TIME: "${CANARY_TIME:-09:30}"            # local time of the daily run
+      # CANARY_DINNER_NAME: "Dinner"                # meal category that must exist (default Dinner)
     volumes:
       # A private folder, ideally on an encrypted shared folder. Holds the sign-in, which is
       # the full Skylight login: anyone who can read it can use the account.

@@ -1,17 +1,14 @@
 /**
  * The properties that matter, with the real library under the canary and only the network
- * replaced: the Skylight token goes to the Skylight host and nowhere else, the ping host
- * never sees a credential, only reads are made, and the ping address is never logged.
+ * replaced: the Skylight token goes to the Skylight host and nowhere else, only reads are made,
+ * and the output is a fixed vocabulary with nothing from Skylight and no credential in it.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCycle } from "../src/canary/run.js";
-import { parsePingUrl } from "../src/canary/ping.js";
 import { createSkylight } from "../src/lib.js";
 import type { CredentialStore } from "../src/api/credential-store.js";
 
 const TOKEN = "TOKEN-SECRET-123";
-const UUID = "123e4567-e89b-12d3-a456-426614174000";
-const PING = `https://hc-ping.com/${UUID}`;
 
 interface Call {
   host: string;
@@ -34,7 +31,7 @@ function fixtures(over: Record<string, unknown> = {}): Record<string, unknown> {
   };
 }
 
-function stubNetwork(fx: Record<string, unknown>, pingStatus = 200): Call[] {
+function stubNetwork(fx: Record<string, unknown>): Call[] {
   const calls: Call[] = [];
   vi.stubGlobal("fetch", async (url: string | URL, init?: RequestInit) => {
     const u = new URL(String(url));
@@ -45,7 +42,6 @@ function stubNetwork(fx: Record<string, unknown>, pingStatus = 200): Call[] {
       auth: new Headers(init?.headers).get("authorization"),
       body: typeof init?.body === "string" ? init.body : null,
     });
-    if (u.host === "hc-ping.com") return new Response("OK", { status: pingStatus });
     let body: unknown = { data: [] };
     for (const [suffix, value] of Object.entries(fx)) if (u.pathname.endsWith(suffix)) body = value;
     return new Response(JSON.stringify(body), { status: 200 });
@@ -56,7 +52,6 @@ function stubNetwork(fx: Record<string, unknown>, pingStatus = 200): Call[] {
 function deps(log: string[], credential: Parameters<typeof createSkylight>[0]["credential"] = { token: TOKEN }) {
   return {
     skylight: createSkylight({ frameId: "123", timezone: "America/Los_Angeles", credential }),
-    pingUrl: parsePingUrl(PING),
     timezone: "America/Los_Angeles",
     dinnerName: "Dinner",
     now: () => Date.parse("2037-03-03T16:00:00Z"),
@@ -67,33 +62,26 @@ function deps(log: string[], credential: Parameters<typeof createSkylight>[0]["c
 afterEach(() => vi.unstubAllGlobals());
 
 describe("canary cycle", () => {
-  it("passes: reads only, token only to the Skylight host, one pass ping with no credential", async () => {
+  it("passes: reads only, token only to the Skylight host, one fixed line", async () => {
     const calls = stubNetwork(fixtures());
     const log: string[] = [];
     const result = await runCycle(deps(log));
-    expect(result).toMatchObject({ ok: true, pinged: true });
-
-    const skylight = calls.filter((c) => c.host !== "hc-ping.com");
-    expect(skylight.length).toBeGreaterThan(0);
-    expect(new Set(skylight.map((c) => c.host))).toEqual(new Set(["app.ourskylight.com"]));
-    expect(skylight.every((c) => c.method === "GET")).toBe(true);
-    expect(skylight.every((c) => c.auth === `Bearer ${TOKEN}`)).toBe(true);
-
-    const pings = calls.filter((c) => c.host === "hc-ping.com");
-    expect(pings).toHaveLength(1);
-    expect(pings[0]).toMatchObject({ path: `/${UUID}`, method: "POST", auth: null, body: "all 5 checks passed" });
-    expect(JSON.stringify(pings)).not.toContain(TOKEN);
+    expect(result).toEqual({ ok: true, message: "all 5 checks passed" });
+    expect(calls.length).toBeGreaterThan(0);
+    expect(new Set(calls.map((c) => c.host))).toEqual(new Set(["app.ourskylight.com"]));
+    expect(calls.every((c) => c.method === "GET")).toBe(true);
+    expect(calls.every((c) => c.auth === `Bearer ${TOKEN}`)).toBe(true);
+    expect(log).toEqual(["[canary] 2037-03-03 PASS: all 5 checks passed"]);
   });
 
-  it("fails: a /fail ping naming the check, and nothing from Skylight in it", async () => {
-    const calls = stubNetwork(fixtures({ "/calendar_events": { data: [] } }));
+  it("fails: names the check, and nothing from Skylight is in the output", async () => {
+    stubNetwork(fixtures({ "/calendar_events": { data: [] } }));
     const log: string[] = [];
     const result = await runCycle(deps(log));
     expect(result).toMatchObject({ ok: false, message: "FAILED: calendar-week:empty" });
-    const ping = calls.find((c) => c.host === "hc-ping.com")!;
-    expect(ping.path).toBe(`/${UUID}/fail`);
-    expect(ping.body).toBe("FAILED: calendar-week:empty");
-    expect(ping.body).not.toMatch(/Practice|Tacos|League|Alex/);
+    expect(log.join("\n")).toContain("FAIL: FAILED: calendar-week:empty");
+    expect(log.join("\n")).not.toMatch(/Practice|Tacos|League|Alex/);
+    expect(log.join("\n")).not.toContain(TOKEN);
   });
 
   it("a changed shape is a failure, not a silent pass", async () => {
@@ -102,24 +90,11 @@ describe("canary cycle", () => {
     expect(result).toMatchObject({ ok: false, message: "FAILED: meal-categories:no-dinner" });
   });
 
-  it("no stored sign-in: one /fail ping saying so, and no token anywhere", async () => {
+  it("no stored sign-in: a failure saying so, with no Skylight call and no token", async () => {
     const calls = stubNetwork(fixtures());
     const empty: CredentialStore = { read: async () => null, write: async () => {}, delete: async () => false, readPending: async () => null, writePending: async () => {}, deletePending: async () => false } as unknown as CredentialStore;
     const result = await runCycle(deps([], empty));
     expect(result).toMatchObject({ ok: false, message: "FAILED: sign-in needed" });
-    expect(calls.filter((c) => c.host !== "hc-ping.com")).toHaveLength(0);
-    expect(calls.find((c) => c.host === "hc-ping.com")?.path).toBe(`/${UUID}/fail`);
-  });
-
-  it("never logs the ping address, and reports an unsent ping", async () => {
-    stubNetwork(fixtures(), 500);
-    const log: string[] = [];
-    const result = await runCycle({ ...deps(log), fetchImpl: async () => new Response("no", { status: 500 }) });
-    expect(result.pinged).toBe(false);
-    const text = log.join("\n");
-    expect(text).toContain("NOT sent");
-    expect(text).not.toContain(UUID);
-    expect(text).not.toContain("hc-ping.com/");
-    expect(text).not.toContain(TOKEN);
+    expect(calls).toHaveLength(0);
   });
 });
