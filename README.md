@@ -210,6 +210,8 @@ fixed in 1.8.0), the live test suite, and `worker:setup`.
 | Tools missing after an update | Fully quit and reopen the client; it caches the tool list. For a hosted connector use its "Refresh tools list". |
 | Worked yesterday, fails today | Skylight has no public API and may have changed. Run `doctor`, then check the issues. |
 
+To find out before it bites, run the [breakage canary](canary/README.md) weekly from a host scheduler (optional, Docker). It reads five things through the library entry and exits non-zero when one changes shape; your scheduler does the emailing.
+
 ### First five things to ask Claude
 
 Once `doctor` is clean, try these in order. The first three only read. The last two show how the write guards work, so you see them before anything lands on your Skylight display.
