@@ -113,20 +113,19 @@ Limit: an importer holds a live bearer token and can do whatever the token allow
 
 ## Breakage canary (container)
 
-`canary/` and the `Dockerfile` run a daily read-only check on an always-on host and ping
-healthchecks.io. Security properties, each with a test:
+`canary/` and the `Dockerfile` hold a one-shot read-only check meant to be run from a host
+scheduler (`docker exec ... --once`). Security properties, each with a test where code can show it:
 
 - It signs in with its own credential (`skylight-mcp auth login` inside the container). On Linux
   that is the file store: an unencrypted 0600 file, so the folder it lives on must be private,
   and the sign-in is the full Skylight login, not a read-only one. Use a dedicated sign-in so it
   can be revoked on its own, and never share a credential between apps (refresh tokens rotate).
-- The ping address is a secret (it lets anyone fake a pass). It comes from the environment, may
-  only be `https://hc-ping.com/<uuid>`, is never logged, and redirects are refused.
-- The ping code never receives a Skylight credential, so the token cannot be sent to the ping
-  host; a test records every request and checks the token appears only on the pinned Skylight host.
-- Alerts use a fixed vocabulary (check ids and reason words). Nothing Skylight returns is copied
-  into them.
-- Only the library's read methods are used. The container opens no ports and registers no tools.
+- The only host that receives the token is the pinned Skylight origin; a test records every
+  request and checks that.
+- Output is a fixed vocabulary (check ids and reason words). Nothing Skylight returns is copied
+  into it, and no credential is printed.
+- Only the library's read methods are used. The container opens no ports, sends no network
+  traffic of its own, and registers no tools. Alerting is the host scheduler's job.
 
 ## Generated API types
 

@@ -1,5 +1,5 @@
 # Breakage canary for an always-on host (for example a NAS). Runs a read-only check of the
-# Skylight API once a day and pings healthchecks.io. It is NOT the MCP server.
+# Skylight API when the host scheduler runs it (docker exec ... --once). It is NOT the MCP server.
 # See canary/README.md.
 
 FROM node:22-alpine AS build
@@ -19,4 +19,4 @@ COPY --from=build /app/dist ./dist
 # The sign-in file lives here and nowhere else. Mount a private folder on it.
 VOLUME /data
 USER node
-CMD ["node", "dist/canary/run.js"]
+CMD ["tail", "-f", "/dev/null"]
