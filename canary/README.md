@@ -23,8 +23,8 @@ scheduler task is broken, you hear nothing.
    full Skylight login (not read-only) stored as a 0600 file, so anyone who can read the folder
    can use the account. Make it owned by the uid:gid the container runs as.
 2. **Build and start** the stack from `canary/docker-compose.example.yml` (Portainer: Stacks, Add
-   stack, Repository). Put `SKYLIGHT_FRAME_ID` and `SKYLIGHT_TIMEZONE` in the stack's environment
-   variables. The container idles; it does nothing until you exec into it.
+   stack, Repository). Put `SKYLIGHT_FRAME_ID`, `SKYLIGHT_TIMEZONE`, `CANARY_UID`, `CANARY_GID` (the owner of the
+   folder) and `CANARY_DATA_DIR` (the folder's path) in the stack's environment variables. The container idles; it does nothing until you exec into it.
 3. **Sign in once**, with its own sign-in (never copy another app's credential: refresh tokens
    rotate and a shared one breaks the other holder):
 
