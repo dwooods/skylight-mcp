@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Docs only: README live-status for meal `profiles` updated. Run live on 2026-11-13 through the hosted Worker (1.21.0): weekly create with a profile, a whole-series edit to two people, and a `future` split giving later dates a different person, each read back, then deleted. Not run live: scope `one` with `profiles` on a repeating meal (it detaches the occurrence, which this server cannot delete).
+
 ## [1.21.0] - 2026-11-13
 
 ### Added
