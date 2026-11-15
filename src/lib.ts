@@ -92,8 +92,8 @@ export interface ProfileDto {
 
 /**
  * A label: a category that is not a profile (a feed, a holiday calendar, a team). Same shape as
- * ProfileDto. `color` is the string Skylight stores (the app's palette is six-digit hex such as
- * "#2178AF"), or null. Treat it as untrusted text and validate before using it as a style.
+ * ProfileDto. `color` is the string Skylight stores, or null. Seen live: six-digit hex with a "#",
+ * in either case ("#2178AF", "#fdb305"), including colours outside the app's palette. Treat it as untrusted text and validate before using it as a style.
  * `label` is an email-shaped name replaced by "Calendar", exactly as in `EventDto.labels`.
  */
 export interface LabelDto {
