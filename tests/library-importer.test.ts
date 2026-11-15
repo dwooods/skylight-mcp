@@ -127,6 +127,7 @@ describe("library entry, from the importer's side (packed package)", () => {
     expect(out).toEqual({
       calendar: ["events", "sources"],
       profiles: ["list"],
+      labels: ["list"],
       chores: ["list"],
       meals: ["categories", "recipes", "sittings"],
       lists: ["items", "list"],
@@ -174,6 +175,7 @@ describe("library entry, from the importer's side (packed package)", () => {
       await sky.calendar.events({ from: "2037-03-03", to: "2037-03-04" });
       await sky.calendar.sources();
       await sky.profiles.list();
+      await sky.labels.list();
       await sky.chores.list({ date: "2037-03-03", profile: "Alex" });
       await sky.meals.sittings({ from: "2037-03-03", to: "2037-03-04" });
       await sky.meals.recipes();
@@ -207,7 +209,7 @@ describe("library entry, from the importer's side (packed package)", () => {
     const text = JSON.stringify(out);
     expect(text).not.toMatch(EMAIL);
     for (const secret of ["uid-secret-1", "family-secret", "acct-secret-1"]) expect(text).not.toContain(secret);
-    expect(events[0]).toMatchObject({ title: "Practice", profiles: ["Alex"], labels: ["Team"], source: "google", seriesId: "101", recurring: true, allDay: false });
+    expect(events[0]).toMatchObject({ title: "Practice", profiles: ["Alex"], labels: ["Team"], profileIds: ["11"], labelIds: ["90"], source: "google", seriesId: "101", recurring: true, allDay: false });
   });
 
   it("7. every return value is JSON-safe (survives a round trip unchanged)", () => {
@@ -216,6 +218,7 @@ describe("library entry, from the importer's side (packed package)", () => {
         events: await sky.calendar.events({ from: "2037-03-03", to: "2037-03-04" }),
         sources: await sky.calendar.sources(),
         profiles: await sky.profiles.list(),
+        labels: await sky.labels.list(),
         chores: await sky.chores.list({ date: "2037-03-03" }),
         sittings: await sky.meals.sittings({ from: "2037-03-03", to: "2037-03-04" }),
         recipes: await sky.meals.recipes(),
@@ -259,6 +262,96 @@ describe("library entry, from the importer's side (packed package)", () => {
     const dts = fs.readFileSync(path.join(proj, "node_modules/@davidwoods/skylight-mcp/dist/lib.d.ts"), "utf8");
     expect(dts).toMatch(/opaque/i);
     expect(dts).toMatch(/CHANGE after a time edit/);
+  });
+});
+
+describe("label colours (Mantel request, 2026-11-15)", () => {
+  const cat = (id: string, label: unknown, color: unknown, profile: boolean | undefined) => ({
+    id,
+    type: "category",
+    attributes: { label, color, ...(profile === undefined ? {} : { linked_to_profile: profile }) },
+  });
+  const categories = [
+    cat("11", "Alex", "#2178AF", true),
+    cat("90", "Team", "#CB434C", false), // a feed label
+    cat("91", "US Holidays", "#82D7DD", false), // the holidays label
+    cat("92", "Unused", "#DADADA", false), // no event carries it
+    cat("93", "No colour", null, false),
+    cat("94", "Odd colour", 42, false),
+    cat("95", "", "#000000", false), // nameless: not listed
+    cat("96", "Legacy", "#B6E085", undefined), // no linked_to_profile at all: a label
+    cat("97", "person.two@example.com", "#F66951", false), // email-shaped
+    cat("98", "Team", "#FDB305", false), // a second label with the same name
+  ];
+
+  it("L1. labels.list returns every category that is not a profile, in Skylight's order, as { id, label, color }", () => {
+    const { out } = runImporter(`${make}\nreturn await sky.labels.list();`, fixtures({ "/categories": { data: categories } }));
+    expect(out).toEqual([
+      { id: "90", label: "Team", color: "#CB434C" },
+      { id: "91", label: "US Holidays", color: "#82D7DD" },
+      { id: "92", label: "Unused", color: "#DADADA" },
+      { id: "93", label: "No colour", color: null },
+      { id: "94", label: "Odd colour", color: null },
+      { id: "96", label: "Legacy", color: "#B6E085" },
+      { id: "97", label: "Calendar", color: "#F66951" },
+      { id: "98", label: "Team", color: "#FDB305" },
+    ]);
+  });
+
+  it("L2. profiles and labels never overlap: each named category is in exactly one list", () => {
+    const { out } = runImporter(`${make}\nreturn { p: (await sky.profiles.list()).map((x) => x.id), l: (await sky.labels.list()).map((x) => x.id) };`, fixtures({ "/categories": { data: categories } }));
+    const o = out as { p: string[]; l: string[] };
+    expect(o.p).toEqual(["11"]);
+    expect(o.p.filter((id) => o.l.includes(id))).toEqual([]);
+    expect([...o.p, ...o.l].sort()).toEqual(["11", "90", "91", "92", "93", "94", "96", "97", "98"]);
+  });
+
+  it("L3. an email-shaped label name is replaced in labels.list AND events, so the names match and no address leaves", () => {
+    const withEmail = event("101-1804032000");
+    withEmail.relationships = { categories: { data: [{ id: "11" }, { id: "97" }] } };
+    const { out } = runImporter(
+      `${make}\nreturn { labels: await sky.labels.list(), events: await sky.calendar.events({ from: "2037-03-03", to: "2037-03-03" }) };`,
+      fixtures({ "/categories": { data: categories }, "/calendar_events": { data: [withEmail] } })
+    );
+    const o = out as { labels: Array<{ label: string }>; events: Array<{ labels: string[] }> };
+    expect(JSON.stringify(out)).not.toMatch(EMAIL);
+    expect(o.events[0]!.labels).toEqual(["Calendar"]);
+    expect(o.labels.map((l) => l.label)).toContain(o.events[0]!.labels[0]);
+  });
+
+  it("L4. two labels with the same name are told apart by id: events carry labelIds that match labels.list", () => {
+    const both = event("101-1804032000");
+    both.relationships = { categories: { data: [{ id: "11" }, { id: "98" }, { id: "91" }] } };
+    const { out } = runImporter(
+      `${make}\nreturn { labels: await sky.labels.list(), events: await sky.calendar.events({ from: "2037-03-03", to: "2037-03-03" }) };`,
+      fixtures({ "/categories": { data: categories }, "/calendar_events": { data: [both] } })
+    );
+    const o = out as { labels: Array<{ id: string; label: string; color: string | null }>; events: Array<{ labels: string[]; labelIds: string[]; profileIds: string[] }> };
+    const e = o.events[0]!;
+    expect(e.labels).toEqual(["Team", "US Holidays"]);
+    expect(e.labelIds).toEqual(["98", "91"]);
+    expect(e.profileIds).toEqual(["11"]);
+    // The id, not the name, picks the colour: "Team" alone would be ambiguous (two labels, two colours).
+    expect(e.labelIds.map((id) => o.labels.find((l) => l.id === id)!.color)).toEqual(["#FDB305", "#82D7DD"]);
+    expect(o.labels.filter((l) => l.label === "Team")).toHaveLength(2);
+  });
+
+  it("L5. labels.list is one GET of categories to the pinned host and takes no argument", () => {
+    const { out, calls } = runImporter(`${make}\nconst before = sky.labels.list.length; await sky.labels.list(); return { before };`);
+    expect(out).toEqual({ before: 0 });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.host).toBe("app.ourskylight.com");
+    expect(new URL(calls[0]!.url).pathname).toMatch(/\/categories$/);
+    expect((calls[0]!.method ?? "GET").toUpperCase()).toBe("GET");
+    expect(calls[0]!.auth).toBe("Bearer tok-test-1");
+  });
+
+  it("L6. the shipped type declarations show LabelDto and the id fields", () => {
+    const dts = fs.readFileSync(path.join(proj, "node_modules/@davidwoods/skylight-mcp/dist/lib.d.ts"), "utf8");
+    expect(dts).toMatch(/interface LabelDto/);
+    expect(dts).toMatch(/labels: \{\s*list\(\): Promise<LabelDto\[\]>/);
+    expect(dts).toMatch(/labelIds: string\[\]/);
+    expect(dts).toMatch(/profileIds: string\[\]/);
   });
 });
 
