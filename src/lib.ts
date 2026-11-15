@@ -59,8 +59,14 @@ export interface EventDto {
   end: string | null;
   allDay: boolean;
   location: string | null;
+  /** Profile names, as `profiles.list()` labels them. */
   profiles: string[];
+  /** Label names, as `labels.list()` labels them. Two labels can share a name: use `labelIds` to tell them apart. */
   labels: string[];
+  /** Ids of `profiles`, same order. Match these against `profiles.list()` ids. */
+  profileIds: string[];
+  /** Ids of `labels`, same order. Match these against `labels.list()` ids. */
+  labelIds: string[];
   recurring: boolean;
   seriesId: string | null;
   editable: boolean;
@@ -79,6 +85,18 @@ export interface SourceDto {
 }
 
 export interface ProfileDto {
+  id: string;
+  label: string;
+  color: string | null;
+}
+
+/**
+ * A label: a category that is not a profile (a feed, a holiday calendar, a team). Same shape as
+ * ProfileDto. `color` is the string Skylight stores, or null. Seen live: six-digit hex with a "#",
+ * in either case ("#2178AF", "#fdb305"), including colours outside the app's palette. Treat it as untrusted text and validate before using it as a style.
+ * `label` is an email-shaped name replaced by "Calendar", exactly as in `EventDto.labels`.
+ */
+export interface LabelDto {
   id: string;
   label: string;
   color: string | null;
@@ -138,6 +156,8 @@ export interface Skylight {
     sources(): Promise<SourceDto[]>;
   };
   profiles: { list(): Promise<ProfileDto[]> };
+  /** Every label (category not linked to a profile), in Skylight's order, including labels no event uses. */
+  labels: { list(): Promise<LabelDto[]> };
   /**
    * Chores for one day (`date`) or a range (`from` and `to`, both included, at most 31 days).
    * Pass one or the other, not both. A repeating chore appears once per day it falls on; `date`
@@ -223,15 +243,29 @@ function categoryIds(event: CalendarEventResource): string[] {
 
 const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
 
+/** A category's name as it leaves the library: an email-shaped name is replaced, so no address escapes. */
+function categoryName(c: CategoryResource | undefined): string | null {
+  const label = str(c?.attributes.label);
+  return label !== null && EMAIL.test(label) ? "Calendar" : label;
+}
+
 function toEvent(event: CalendarEventResource, categories: Map<string, CategoryResource>): EventDto {
   const a = event.attributes;
   const profiles: string[] = [];
   const labels: string[] = [];
+  const profileIds: string[] = [];
+  const labelIds: string[] = [];
   for (const id of categoryIds(event)) {
     const c = categories.get(id);
-    const label = str(c?.attributes.label);
+    const label = categoryName(c);
     if (!c || !label) continue;
-    (c.attributes.linked_to_profile === true ? profiles : labels).push(label);
+    if (c.attributes.linked_to_profile === true) {
+      profiles.push(label);
+      profileIds.push(String(c.id));
+    } else {
+      labels.push(label);
+      labelIds.push(String(c.id));
+    }
   }
   const id = String(event.id);
   const composite = /^(\d+)-\d+$/.exec(id);
@@ -245,6 +279,8 @@ function toEvent(event: CalendarEventResource, categories: Map<string, CategoryR
     location: str(a.location),
     profiles,
     labels,
+    profileIds,
+    labelIds,
     recurring: a.recurring === true || a.recurring_config === true,
     seriesId: composite ? composite[1]! : null,
     editable: a.editable !== false,
@@ -315,8 +351,16 @@ export function createSkylight(options: CreateSkylightOptions): Skylight {
       list: () =>
         run(async () =>
           (await getCategories())
-            .filter((c) => c.attributes.linked_to_profile === true && str(c.attributes.label))
-            .map((c) => ({ id: String(c.id), label: c.attributes.label as string, color: str(c.attributes.color) }))
+            .filter((c) => c.attributes.linked_to_profile === true && categoryName(c))
+            .map((c) => ({ id: String(c.id), label: categoryName(c) as string, color: str(c.attributes.color) }))
+        ),
+    },
+    labels: {
+      list: () =>
+        run(async () =>
+          (await getCategories())
+            .filter((c) => c.attributes.linked_to_profile !== true && categoryName(c))
+            .map((c) => ({ id: String(c.id), label: categoryName(c) as string, color: str(c.attributes.color) }))
         ),
     },
     chores: {

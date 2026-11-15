@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-11-15
+
 ### Added
+- Library: `labels.list()` returns `{ id, label, color }[]` for every category that is not a profile (a feed, the holidays calendar, a team, an unused label), the same shape as `profiles.list()`, so a display can colour a label as Skylight does. `EventDto` gains `profileIds` and `labelIds` (ids of `profiles` and `labels`, same order) to match colours by id when two labels share a name. Existing fields are unchanged. Read-only; one cached read of the categories (up to 5 minutes per client). `color` is passed through as stored: seen live as six-digit hex in either case (`#2178AF`, `#fdb305`). Read against a real frame on 2026-11-15 (Mac, branch build): all four labels (a team feed, the US Holidays label, an unused label, a calendar label) and all six profiles returned, every colour six-digit hex; each label's colour equalled the colour the Skylight web app's Profiles screen draws for it (compared as RGB read from the page); every id on 60 days of events resolved in the lists and every name matched. Not verified: a label whose name is an email address (none on the frame), two labels sharing a name, or the colour of a label that is in use but unsynced.
 - Breakage canary for a host scheduler (`canary/`, `Dockerfile`): a one-shot read-only check of the Skylight API (profiles, a Dinner meal category, this week's meals and calendar, calendar sources) that prints one fixed-vocabulary line and exits 0 or 1, so a scheduler (for example a Synology Task Scheduler task that emails on a non-zero exit) can alert you. Not an MCP tool; no tool changes. Image built and run on a Synology NAS under Docker; a failure email was proven end to end.
+
+### Fixed
+- Library: an email-shaped profile or label name on an event (`EventDto.profiles`, `EventDto.labels`) is now replaced by `Calendar`, the same rule source-calendar labels already had. Before, only `calendar.sources()` applied it, so a calendar-address label could reach an importer through an event.
 
 ### Changed
 - Docs only: README live-status for meal `profiles` updated. Run live on 2026-11-13 through the hosted Worker (1.21.0): weekly create with a profile, a whole-series edit to two people, and a `future` split giving later dates a different person, each read back, then deleted. Not run live: scope `one` with `profiles` on a repeating meal (it detaches the occurrence, which this server cannot delete).

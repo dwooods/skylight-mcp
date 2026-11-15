@@ -52,7 +52,7 @@ secrets and never commit them:
 
 The package root (`dist/lib.js`) is the only importable module; `exports` lists nothing else. What an importer can rely on, each checked by `tests/library-importer.test.ts` against the packed package:
 - The API host is pinned in code. There is no host, base URL or fetch option, and an unknown option is refused. Every request carries the token to `app.ourskylight.com` only.
-- Results are plain objects built field by field. Event uids, owner and invited emails, calendar and account ids, subscription feed addresses and email-shaped calendar labels never appear in them.
+- Results are plain objects built field by field. Event uids, owner and invited emails, calendar and account ids, subscription feed addresses and email-shaped calendar labels never appear in them. This holds for profile and label names too: `profiles.list`, `labels.list` and the names on events share one redaction (an email-shaped name becomes `Calendar`).
 - No function on the package root accepts a URL or a feed address, and none writes, deletes, sends a message, manages a source calendar or logs in.
 - Importing the module starts nothing and does not read `process.argv`.
 - A refreshed credential that cannot be saved ends the call with `CredentialSaveError` and is dropped from memory, so no session runs on a token a restart could not recover. Neither the error nor the log line includes the store's own error text, which could contain the credential. This applies to the local server too: a Keychain write failure during refresh now fails the request and asks for a new sign-in.
