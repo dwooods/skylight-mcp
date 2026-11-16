@@ -28,7 +28,7 @@ type Post = { url: string; body: Record<string, unknown> };
 const GCAL = "family-secret-addr@group.calendar.example.com";
 const ACCT = "acct-secret-77";
 
-function stub(opts: { withEvent?: boolean; acct?: unknown; relOnly?: boolean } = {}) {
+function stub(opts: { withEvent?: boolean; acct?: unknown; relOnly?: boolean; sourceAcct?: string } = {}) {
   const posts: Post[] = [];
   const urls: string[] = [];
   const withEvent = opts.withEvent ?? true;
@@ -41,7 +41,10 @@ function stub(opts: { withEvent?: boolean; acct?: unknown; relOnly?: boolean } =
         return new Response(JSON.stringify({ data: [{ id: "11", type: "category", attributes: { label: "Alex", linked_to_profile: true } }] }), { status: 200 });
       }
       if (u.includes("/source_calendars")) {
-        const sc = (id: string, label: string, kind: string, source_id: string, role: string, editable: boolean) => ({ id, type: "source_calendar", attributes: { label, kind, source_id, role, editable } });
+        const sc = (id: string, label: string, kind: string, source_id: string, role: string, editable: boolean) => ({
+          id, type: "source_calendar", attributes: { label, kind, source_id, role, editable },
+          ...(opts.sourceAcct && id === "1" && u.includes("calendar_account") ? { relationships: { calendar_account: { data: { type: "calendar_account", id: opts.sourceAcct } } } } : {}),
+        });
         return new Response(JSON.stringify({ data: [
           sc("1", "Family", "gmail", GCAL, "writer", true),
           sc("2", "League", "webcal", "https://league.example.com/x", "reader", false),
@@ -77,6 +80,16 @@ afterEach(() => {
 const one = { summary: "Game", startsAt: "2037-03-03T16:00", endsAt: "2037-03-03T17:00", calendar: "Family" };
 
 describe("create_calendar_event with calendar (Google target)", () => {
+  it("takes the account from the calendar's own record when Skylight gives it, with no event on that calendar and no event search", async () => {
+    const s = stub({ withEvent: false, sourceAcct: "src-acct-5" });
+    const out = await call({ ...one, confirm: true });
+    expect(out.isError).toBe(false);
+    expect(s.posts).toHaveLength(1);
+    expect(s.posts[0]!.body).toMatchObject({ calendar_id: GCAL, calendar_account_id: "src-acct-5" });
+    expect(s.urls.filter((u) => u.includes("/calendar_events") && !u.includes("POST"))).toHaveLength(1); // only the create itself
+    expect(out.text).not.toContain("src-acct-5");
+  });
+
   it("without confirm: previews, names the calendar, sends no POST and leaks no ids", async () => {
     const s = stub();
     const out = await call(one);

@@ -121,7 +121,6 @@ describe("delete_calendar_event (hosted, preview-first)", () => {
     ["a feed event", { source: "ics_link", editable: false }],
     ["a feed event reporting editable", { source: "ics_link" }],
     ["a non-editable event", { editable: false }],
-    ["an occurrence edited on its own", { master_event_id: "uof1jj830ii82vaakifhnassco" }],
     ["a Google event that is not editable", { source: "google", editable: false }],
   ])("refuses %s even with confirm, and sends no DELETE", async (_label, over) => {
     const s = stub([ev("1", over)]);
@@ -129,6 +128,38 @@ describe("delete_calendar_event (hosted, preview-first)", () => {
     expect(out.isError).toBe(true);
     expect(out.text).toContain("Nothing was deleted");
     expect(s.deletes).toEqual([]);
+  });
+
+  describe("an occurrence edited on its own (captured and verified live 2026-11-16)", () => {
+    const det = (over: Record<string, unknown> = {}) => ev("14876193657", { master_event_id: "uof1jj830ii82vaakifhnassco", recurring: false, ...over });
+
+    it("previews it as its own event and deletes it with a plain DELETE, no scope", async () => {
+      const s = stub([det()]);
+      const preview = await call("delete_calendar_event", { eventId: "14876193657", date: "2026-11-12" });
+      expect(preview.text).toContain("edited on its own");
+      expect(s.deletes).toEqual([]);
+      const out = await call("delete_calendar_event", { eventId: "14876193657", date: "2026-11-12", confirm: true });
+      expect(out.isError).toBe(false);
+      expect(s.deletes).toHaveLength(1);
+      expect(s.deletes[0]).toMatch(/calendar_events\/14876193657$/);
+    });
+
+    it("refuses a scope on it, even if Skylight marks it recurring, and sends no DELETE", async () => {
+      for (const over of [{}, { recurring: true }]) {
+        const s = stub([det(over)]);
+        const out = await call("delete_calendar_event", { eventId: "14876193657", date: "2026-11-12", scope: "one", confirm: true });
+        expect(out.isError).toBe(true);
+        expect(out.text).toContain("without a scope");
+        expect(s.deletes).toEqual([]);
+      }
+    });
+
+    it("does not ask for a scope even if Skylight marks it recurring", async () => {
+      const s = stub([det({ recurring: true, recurring_config: true })]);
+      const out = await call("delete_calendar_event", { eventId: "14876193657", date: "2026-11-12", confirm: true });
+      expect(out.isError).toBe(false);
+      expect(s.deletes).toHaveLength(1);
+    });
   });
 
   describe("Google-synced events", () => {
