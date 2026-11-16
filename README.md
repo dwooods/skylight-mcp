@@ -624,7 +624,7 @@ const skylight = createSkylight({
 const events = await skylight.calendar.events({ from: "2026-11-09", to: "2026-11-15" });
 ```
 
-Read methods only: `calendar.events`, `calendar.sources`, `profiles.list`, `labels.list`, `chores.list`, `meals.sittings`, `meals.recipes`, `meals.categories`, `lists.list`, `lists.items`. They return plain objects, never raw Skylight records: no emails, event uids, calendar or account ids, or subscription feed addresses (a feed shows only its host; an email-shaped calendar label is replaced). Event ids are opaque: a repeating event's occurrence ids change after a time edit, so do not store or compare them.
+Read methods: `calendar.events`, `calendar.sources`, `profiles.list`, `labels.list`, `chores.list`, `meals.sittings`, `meals.recipes`, `meals.categories`, `lists.list`, `lists.items`. They return plain objects, never raw Skylight records: no emails, event uids, calendar or account ids, or subscription feed addresses (a feed shows only its host; an email-shaped calendar label is replaced). Event ids are opaque: a repeating event's occurrence ids change after a time edit, so do not store or compare them. One write: `calendar.previewCreate` and `calendar.create` (see "Creating events" below).
 
 Behaviour an importer should plan for:
 - `chores.list` takes one day (`{ date }`) or a range (`{ from, to }`, both included, at most 31 days), plus an optional `profile`. A repeating chore appears once per day it falls on, and each item's `date` is that day. The range is not yet verified against live Skylight.
@@ -635,7 +635,24 @@ Behaviour an importer should plan for:
 - If a refreshed credential cannot be written to your store, the call fails with `CredentialSaveError` (an `AuthenticationError`, `code` `CREDENTIAL_SAVE_FAILED`). Refresh tokens rotate, so the old one in your store is already spent: treat it as signed out and sign in again. The error never includes your store's own message.
 - The library writes no per-request log lines. Errors and warnings still go to `console.error`.
 
-What is not there, on purpose: writes, deletes, messages, source-calendar and feed management, and any function that takes a URL or a feed address (sign-in lives in the separate setup entry below, which accepts exactly one address: the Skylight redirect you paste). There is no host or fetch option; the API host is fixed in code and an unknown option is refused. Only the package root and `/setup` are importable (deep imports such as `dist/api/client.js` fail). The library holds a live sign-in, so it stops accidents and token leaks, not a malicious importer. Verified read-only against a real frame on 2026-11-09 (chores and list items were empty that day).
+What is not there, on purpose: event updates and deletes (planned next), other writes, messages, source-calendar and feed management, and any function that takes a URL or a feed address (sign-in lives in the separate setup entry below, which accepts exactly one address: the Skylight redirect you paste). There is no host or fetch option; the API host is fixed in code and an unknown option is refused. Only the package root and `/setup` are importable (deep imports such as `dist/api/client.js` fail). The library holds a live sign-in, so it stops accidents and token leaks, not a malicious importer. Verified read-only against a real frame on 2026-11-09 (chores and list items were empty that day).
+
+### Creating events (experimental)
+
+```ts
+const entry = { title: "Dentist", start: "2026-12-03T15:00", end: "2026-12-03T16:00", profileIds: ["123"], calendar: "456" };
+const preview = await skylight.calendar.previewCreate(entry); // changes nothing; show it, get a yes
+const event = await skylight.calendar.create(entry);          // same arguments; returns the stored event
+```
+
+- Two functions, identical arguments. Both run the same check against fresh reads (profiles, labels, calendars), so the preview cannot drift from the write. `create` checks again, writes once, then reads the event back and resolves only when the read-back shows every field as asked.
+- `calendar` is required: `"skylight"` for Skylight's own calendar (shows on Skylight only), or the `id` of a calendar from `calendar.sources()` whose `writable` is true: a Google calendar this account can edit. Skylight writes the event through to Google, where everyone who shares that calendar sees it, with that calendar's default reminders. The calendar's address and account are looked up inside the call and never returned.
+- Times are wall-clock in the frame's time zone: `start` and `end` as `YYYY-MM-DDTHH:MM`, no offset or `Z`. A time the clocks skip is refused; an ambiguous time (the repeated hour) is read as the earlier one. All day: `allDay: true`, `start` as `YYYY-MM-DD`, `end` left out (one day). The preview shows the times as they will be sent (ISO with the frame's offset).
+- Optional: `location` (500 characters), `notes` (5,000), `profileIds` (from `profiles.list()`), `labelIds` (from `labels.list()`; a label a synced calendar writes to is refused, Skylight assigns it itself). Title: one line, 200 characters. These limits are the library's; Skylight's own are not known.
+- One-off events only: no repeating events, no multi-day all-day events yet.
+- Errors are plain `Error`s with `name` `"SkylightWriteError"` and a `code`; check `name` and `code`, not `instanceof` (the root exports no classes). Input: `bad_input`, `invalid_title`, `invalid_time`, `end_before_start`, `unknown_profile`, `unknown_label`, `label_not_assignable` (each with `ids`), `unknown_calendar`, `calendar_not_writable`, `unsupported`. The write: `skylight_refused` (Skylight said no, with `status`; nothing was written), `outcome_unknown` (a network or server error after sending: it may or may not exist, read before retrying), `not_confirmed` (accepted, with `eventId`, but the read-back did not show it as asked within about 2 seconds; Skylight's list can lag, so read before retrying). Messages are the library's own; Skylight's response text is never included. A sign-in failure stays an `AuthenticationError`.
+- After `create` resolves, a read of that day through the library shows the event (the read-back used the same list). Google gets it from Skylight a few seconds later; the library does not check Google.
+- Nothing de-duplicates: two `create` calls make two events. Debounce taps in your app.
 
 ### Signing in from your own app (setup entry, experimental)
 

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Library: event creation, stage 1 of library writes (asked for by Mantel; reverses the 2026-11-10 read-only decision). `calendar.previewCreate(input)` and `calendar.create(input)` take identical arguments and share one check, run against fresh reads each time; `create` writes once and resolves with the event as read back. One-off events: title, wall-clock start and end in the frame's zone (or one all-day date), location, notes, profile ids, label ids, and a required `calendar` (`"skylight"` or a writable Google calendar's `calendar.sources()` id). Errors carry `name` "SkylightWriteError" and a stable `code`; Skylight's response text is never included. `SourceDto` gains `writable`. Updates and deletes come in a later release. The Google calendar's account is now read from the source calendar itself (`include=calendar_account`), checked on a real frame to equal the account on that calendar's events, so no existing event is needed (the MCP tool still uses its older lookup).
+
 ## [1.22.0] - 2026-11-15
 
 ### Added

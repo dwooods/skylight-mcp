@@ -43,6 +43,19 @@ beforeAll(async () => {
       if (url.pathname.endsWith("/source_calendars")) {
         return Response.json({ data: [{ id: "2", type: "source_calendar", attributes: { label: "League", kind: "webcal", role: "reader", editable: false, source_id: "webcal://u:p@feeds.example.com/x/SECRETFEED?token=abc" } }] });
       }
+      if (url.pathname.endsWith("/categories")) {
+        return Response.json({ data: [{ id: "11", type: "category", attributes: { label: "Alex", color: "#2178AF", linked_to_profile: true } }] });
+      }
+      if (url.pathname.endsWith("/calendar_events") && request.method === "POST") return Response.json({ data: { id: "77", type: "calendar_event", attributes: {} } });
+      if (url.pathname.endsWith("/calendar_events")) {
+        return Response.json({
+          data: [{
+            id: "77", type: "calendar_event",
+            attributes: { summary: "Wall entry", starts_at: "2037-03-03T16:00:00.000-08:00", ends_at: "2037-03-03T17:00:00.000-08:00", all_day: false, location: "", description: "", source: "skylight", editable: true },
+            relationships: { categories: { data: [{ id: "11", type: "category" }] } },
+          }],
+        });
+      }
       return Response.json({ data: [] });
     },
   }));
@@ -89,7 +102,20 @@ describe("setup entry inside the Workers runtime (workerd, nodejs_compat)", () =
 
   it("the stored credential then reads through createSkylight, with the feed address reduced to its host", () => {
     for (const c of calls.filter((c) => new URL(c.url).pathname !== "/oauth/token")) expect(c.auth).toBe("Bearer AT-worker-1");
-    expect(result.sources).toEqual([{ id: "2", label: "League", kind: "feed", role: "reader", editable: false, host: "webcal://feeds.example.com" }]);
+    expect(result.sources).toEqual([{ id: "2", label: "League", kind: "feed", role: "reader", editable: false, host: "webcal://feeds.example.com", writable: false }]);
     expect(JSON.stringify(result.sources)).not.toContain("SECRETFEED");
+  });
+});
+
+describe("event create inside the Workers runtime (workerd, nodejs_compat)", () => {
+  it("previews, writes once to the pinned host and returns the read-back", () => {
+    expect(result.preview).toMatchObject({ action: "create", title: "Wall entry", start: "2037-03-03T16:00:00.000-08:00", profileIds: ["11"], calendar: { id: "skylight" } });
+    expect(result.created).toMatchObject({ id: "77", title: "Wall entry", profileIds: ["11"], source: "skylight" });
+    const posts = calls.filter((c) => c.method === "POST" && new URL(c.url).pathname.endsWith("/calendar_events"));
+    expect(posts).toHaveLength(1);
+    expect(new URL(posts[0]!.url).origin).toBe("https://app.ourskylight.com");
+    expect(posts[0]!.auth).toBe("Bearer AT-worker-1");
+    expect(JSON.parse(posts[0]!.body)).toMatchObject({ summary: "Wall entry", starts_at: "2037-03-03T16:00:00.000-08:00", category_ids: ["11"] });
+    expect(result.refused).toMatchObject({ name: "SkylightWriteError", code: "end_before_start" });
   });
 });

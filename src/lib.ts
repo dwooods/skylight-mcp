@@ -12,8 +12,9 @@
  * - No function takes a URL or a feed address (so the feed-address helper is not exported either).
  * - Importing this module starts nothing and reads nothing from process.argv.
  *
- * Phase 1 is read-only. Writes, deletes, messages, source-calendar management and
- * login are deliberately not exported.
+ * Reads, plus event creation (experimental, stage 1 of event writes): `calendar.previewCreate`
+ * and `calendar.create` take identical arguments and share one check (src/lib-writes.ts).
+ * Updates, deletes, messages, source-calendar management and login are deliberately not exported.
  *
  * Honest limit: an importer holds a live bearer token and can do whatever the token
  * allows. These guards stop accidents and token leakage, not a malicious importer.
@@ -32,6 +33,9 @@ import { isChoreDone, parseOccurrenceId } from "./api/endpoints/chores.js";
 import { addDays } from "./utils/schedule.js";
 import { redactFeedUrl } from "./utils/redact.js";
 import type { CalendarEventResource, CategoryResource, ChoreResource, SourceCalendarResource } from "./api/types.js";
+import { commitCreate, planCreate, sourceWritable, type CreateEventInput, type CreatePreview } from "./lib-writes.js";
+
+export type { CreateEventInput, CreatePreview, SkylightWriteError, WriteErrorCode } from "./lib-writes.js";
 
 export type { CredentialStore };
 
@@ -82,6 +86,8 @@ export interface SourceDto {
   editable: boolean;
   /** Scheme and host of a subscription feed only; null otherwise. */
   host: string | null;
+  /** True when `calendar.create` can write to it: a Google calendar this account can edit. */
+  writable: boolean;
 }
 
 export interface ProfileDto {
@@ -154,6 +160,14 @@ export interface Skylight {
     /** Events from `from` to `to`, both YYYY-MM-DD, both days included. */
     events(range: { from: string; to: string }): Promise<EventDto[]>;
     sources(): Promise<SourceDto[]>;
+    /** Check a new event and return exactly what `create` would write. Changes nothing. */
+    previewCreate(input: CreateEventInput): Promise<CreatePreview>;
+    /**
+     * Re-run the same check against fresh reads, write, then read back. Resolves with the event as
+     * Skylight stored it, only when the read-back shows every field as asked. Throws an Error with
+     * `name` "SkylightWriteError" and a `code` otherwise (see CreateEventInput and README).
+     */
+    create(input: CreateEventInput): Promise<EventDto>;
   };
   profiles: { list(): Promise<ProfileDto[]> };
   /** Every label (category not linked to a profile), in Skylight's order, including labels no event uses. */
@@ -302,6 +316,7 @@ function toSource(cal: SourceCalendarResource): SourceDto {
     role: str(a.role),
     editable: a.editable === true,
     host: hostMatch ? hostMatch[1]! : null,
+    writable: sourceWritable(cal),
   };
 }
 
@@ -346,6 +361,13 @@ export function createSkylight(options: CreateSkylightOptions): Skylight {
           return events.map((e) => toEvent(e, byId));
         }),
       sources: () => run(async () => (await getSourceCalendars()).map(toSource)),
+      previewCreate: (input) => run(async () => (await planCreate(input, config.timezone)).preview),
+      create: (input) =>
+        run(async () => {
+          const stored = await commitCreate(input, config.timezone, categoryIds);
+          const byId = new Map((await getCategories()).map((c) => [String(c.id), c]));
+          return toEvent(stored, byId);
+        }),
     },
     profiles: {
       list: () =>
