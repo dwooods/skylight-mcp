@@ -25,6 +25,11 @@ export default {
     const replay = await attempt(() => completeLogin({ pending, credential, redirectUrl: `https://ourskylight.com/welcome?code=CODE-W&state=${state}` }));
     const status = await loginStatus({ credential });
     const sources = await attempt(() => createSkylight({ frameId: "123", timezone: "America/Los_Angeles", credential }).calendar.sources());
+    const sky = createSkylight({ frameId: "123", timezone: "America/Los_Angeles", credential });
+    const entry = { title: "Wall entry", start: "2037-03-03T16:00", end: "2037-03-03T17:00", profileIds: ["11"], calendar: "skylight" };
+    const preview = await attempt(() => sky.calendar.previewCreate(entry));
+    const created = await attempt(() => sky.calendar.create(entry));
+    const refused = await attempt(() => sky.calendar.create({ ...entry, end: "2037-03-03T15:00" }));
 
     // A second attempt with the wrong state, in the same runtime.
     const again = await beginLogin({ pending });
@@ -41,6 +46,7 @@ export default {
       status, writes,
       storedOk: stored?.accessToken === "AT-worker-1" && stored?.refreshToken === "RT-worker-1" && typeof stored?.fingerprint === "string",
       sources: sources.ok ?? sources,
+      preview: preview.ok ?? preview, created: created.ok ?? created, refused,
       returned: JSON.stringify([started, done, status]),
       verifier: record.codeVerifier,
     });

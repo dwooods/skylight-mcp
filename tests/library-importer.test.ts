@@ -125,7 +125,7 @@ describe("library entry, from the importer's side (packed package)", () => {
   it("1b. the created object has exactly the Phase 1 read methods, no more", () => {
     const { out } = runImporter(`${make}\nreturn Object.fromEntries(Object.entries(sky).map(([k, v]) => [k, Object.keys(v).sort()]));`);
     expect(out).toEqual({
-      calendar: ["events", "sources"],
+      calendar: ["create", "events", "previewCreate", "sources"],
       profiles: ["list"],
       labels: ["list"],
       chores: ["list"],
@@ -352,6 +352,198 @@ describe("label colours (Mantel request, 2026-11-15)", () => {
     expect(dts).toMatch(/labels: \{\s*list\(\): Promise<LabelDto\[\]>/);
     expect(dts).toMatch(/labelIds: string\[\]/);
     expect(dts).toMatch(/profileIds: string\[\]/);
+  });
+});
+
+describe("event create, stage 1 of library writes (2026-11-15)", () => {
+  const cats = [
+    { id: "11", type: "category", attributes: { label: "Alex", color: "#2178AF", linked_to_profile: true } },
+    { id: "12", type: "category", attributes: { label: "Jordan", color: "#CB434C", linked_to_profile: true } },
+    { id: "90", type: "category", attributes: { label: "Team", color: "#B6E085", linked_to_profile: false }, relationships: { source_calendars: { data: [{ id: "2", type: "source_calendar" }] } } },
+    { id: "91", type: "category", attributes: { label: "Chores", color: "#DADADA", linked_to_profile: false }, relationships: { source_calendars: { data: [] } } },
+  ];
+  const ADDRESS = "family-secret@group.calendar.example.com";
+  const sources = {
+    data: [
+      { id: "1", type: "source_calendar", attributes: { label: "person.one@example.com", kind: "gmail", role: "owner", editable: true, source_id: ADDRESS }, relationships: { calendar_account: { data: { id: "777", type: "calendar_account" } } } },
+      { id: "2", type: "source_calendar", attributes: { label: "League", kind: "webcal", role: "reader", editable: false, source_id: "webcal://feeds.example.com/x/SECRETTOKEN123" }, relationships: { calendar_account: { data: null } } },
+      { id: "3", type: "source_calendar", attributes: { label: "Shared", kind: "gmail", role: "reader", editable: false, source_id: "shared@group.calendar.example.com" }, relationships: { calendar_account: { data: { id: "778", type: "calendar_account" } } } },
+      { id: "4", type: "source_calendar", attributes: { label: "Orphan", kind: "gmail", role: "owner", editable: true, source_id: "orphan@group.calendar.example.com" }, relationships: { calendar_account: { data: null } } },
+    ],
+    included: [{ id: "777", type: "calendar_account", attributes: { email: "account.owner@example.com", provider: "google" } }],
+  };
+  const input = { title: "Practice", start: "2037-03-03T16:00", end: "2037-03-03T17:00", location: "Gym", notes: "Bring water", profileIds: ["11"], labelIds: ["91"], calendar: "skylight" };
+  const stored = (over: Record<string, unknown> = {}, cats: string[] = ["11", "91"]) => ({
+    id: "5001",
+    type: "calendar_event",
+    attributes: {
+      summary: "Practice", starts_at: "2037-03-03T16:00:00.000-08:00", ends_at: "2037-03-03T17:00:00.000-08:00", all_day: false,
+      location: "Gym", description: "Bring water", source: "skylight", editable: true, recurring: false, timezone: "America/Los_Angeles",
+      owner_email: "owner.person@example.com", calendar_id: null, uid: "uid-secret-9", ...over,
+    },
+    relationships: { categories: { data: cats.map((id) => ({ id, type: "category" })) } },
+  });
+  const fx = (over: Record<string, unknown> = {}) =>
+    fixtures({
+      "/categories": { data: cats },
+      "/source_calendars": sources,
+      "POST /calendar_events": { data: { id: "5001", type: "calendar_event", attributes: {} } },
+      "/calendar_events": { data: [stored()] },
+      ...over,
+    });
+  const posts = (calls: Call[]) => calls.filter((c) => c.method === "POST");
+  const tryCall = (expr: string) => `try { return { ok: true, value: await ${expr} }; } catch (e) { return { ok: false, name: e.name, code: e.code, status: e.status, ids: e.ids, eventId: e.eventId, message: String(e.message) }; }`;
+
+  it("W1. previewCreate changes nothing and returns what would be written, times with the frame's offset", () => {
+    const { out, calls } = runImporter(`${make}\nreturn await sky.calendar.previewCreate(${JSON.stringify(input)});`, fx());
+    expect(posts(calls)).toEqual([]);
+    for (const c of calls) expect(c.method).toBe("GET");
+    expect(out).toEqual({
+      action: "create", title: "Practice", start: "2037-03-03T16:00:00.000-08:00", end: "2037-03-03T17:00:00.000-08:00", allDay: false,
+      location: "Gym", notes: "Bring water", profileIds: ["11"], profiles: ["Alex"], labelIds: ["91"], labels: ["Chores"],
+      calendar: { id: "skylight", label: "Skylight", kind: "skylight" }, timezone: "America/Los_Angeles",
+    });
+  });
+
+  it("W2. create sends exactly what the preview showed, once, to the pinned host, and returns the read-back as an EventDto", () => {
+    const { out, calls } = runImporter(`${make}\nconst p = await sky.calendar.previewCreate(${JSON.stringify(input)});\nconst e = await sky.calendar.create(${JSON.stringify(input)});\nreturn { p, e };`, fx());
+    const o = out as { p: Record<string, unknown>; e: Record<string, unknown> };
+    const sent = posts(calls);
+    expect(sent).toHaveLength(1);
+    expect(new URL(sent[0]!.url).pathname).toBe("/api/frames/123/calendar_events");
+    const body = JSON.parse(sent[0]!.body!);
+    expect(body).toEqual({
+      summary: o.p.title, kind: "standard", starts_at: o.p.start, ends_at: o.p.end, all_day: o.p.allDay, timezone: o.p.timezone,
+      description: o.p.notes, location: o.p.location, category_ids: [...(o.p.profileIds as string[]), ...(o.p.labelIds as string[])],
+    });
+    for (const c of calls) {
+      expect(c.host).toBe("app.ourskylight.com");
+      expect(c.auth).toBe("Bearer tok-test-1");
+    }
+    expect(o.e).toMatchObject({ id: "5001", title: "Practice", profiles: ["Alex"], labels: ["Chores"], profileIds: ["11"], labelIds: ["91"], source: "skylight", allDay: false });
+    const text = JSON.stringify(o.e);
+    expect(text).not.toMatch(EMAIL);
+    expect(text).not.toContain("uid-secret-9");
+  });
+
+  it("W3. a Google target is chosen by its sources() id; the address and account go to Skylight only, never back to the importer", () => {
+    const g = { ...input, calendar: "1" };
+    const { out, calls } = runImporter(
+      `${make}\nconst sources = await sky.calendar.sources();\nconst p = await sky.calendar.previewCreate(${JSON.stringify(g)});\nconst e = await sky.calendar.create(${JSON.stringify(g)});\nreturn { sources, p, e };`,
+      fx({ "/calendar_events": { data: [stored({ source: "google", calendar_id: ADDRESS })] } })
+    );
+    const o = out as { sources: Array<{ id: string; writable: boolean }>; p: { calendar: unknown }; e: unknown };
+    expect(o.sources.map((x) => [x.id, x.writable])).toEqual([["1", true], ["2", false], ["3", false], ["4", true]]);
+    expect(o.p.calendar).toEqual({ id: "1", label: "Google calendar", kind: "google" });
+    const body = JSON.parse(posts(calls)[0]!.body!);
+    expect(body.calendar_id).toBe(ADDRESS);
+    expect(body.calendar_account_id).toBe("777");
+    const text = JSON.stringify(out);
+    expect(text).not.toContain(ADDRESS);
+    expect(text).not.toContain("777");
+    expect(text).not.toMatch(EMAIL);
+    expect(text).not.toContain("SECRETTOKEN123");
+  });
+
+  it("W4. an all-day event is one date, sent with the next day as Skylight's exclusive end", () => {
+    const a = { title: "Field trip", start: "2037-03-04", allDay: true, calendar: "skylight" };
+    const { out, calls } = runImporter(
+      `${make}\nconst p = await sky.calendar.previewCreate(${JSON.stringify(a)});\nconst e = await sky.calendar.create(${JSON.stringify(a)});\nreturn { p, e };`,
+      fx({ "/calendar_events": { data: [stored({ summary: "Field trip", all_day: true, starts_at: "2037-03-04T00:00:00.000-08:00", ends_at: "2037-03-05T00:00:00.000-08:00", location: null, description: null }, [])] } })
+    );
+    const o = out as { p: Record<string, unknown>; e: Record<string, unknown> };
+    expect(o.p).toMatchObject({ start: "2037-03-04", end: "2037-03-05", allDay: true, location: null, notes: null });
+    expect(JSON.parse(posts(calls)[0]!.body!)).toMatchObject({ starts_at: "2037-03-04", ends_at: "2037-03-05", all_day: true, category_ids: [] });
+    expect(o.e).toMatchObject({ title: "Field trip", allDay: true });
+  });
+
+  it("W5. every bad input is refused by preview AND create with a stable code, before any write", () => {
+    const cases: Array<[Record<string, unknown>, string, string[]?]> = [
+      [{ ...input, colour: "red" }, "bad_input"],
+      [{ ...input, title: "  " }, "invalid_title"],
+      [{ ...input, title: "two\nlines" }, "invalid_title"],
+      [{ ...input, start: "2037-03-03T16:00:00-08:00" }, "invalid_time"],
+      [{ ...input, start: "2037-02-30T16:00" }, "invalid_time"],
+      [{ ...input, start: "2037-03-08T02:30", end: "2037-03-08T03:30" }, "invalid_time"],
+      [{ ...input, end: "2037-03-03T16:00" }, "end_before_start"],
+      [{ ...input, end: "2037-03-03T15:00" }, "end_before_start"],
+      [{ title: "Trip", start: "2037-03-04", end: "2037-03-06", allDay: true, calendar: "skylight" }, "unsupported"],
+      [{ ...input, profileIds: ["91"] }, "unknown_profile", ["91"]],
+      [{ ...input, profileIds: ["999"] }, "unknown_profile", ["999"]],
+      [{ ...input, labelIds: ["11"] }, "unknown_label", ["11"]],
+      [{ ...input, labelIds: ["90"] }, "label_not_assignable", ["90"]],
+      [{ ...input, profileIds: ["11", "11"] }, "bad_input"],
+      [{ ...input, calendar: "999" }, "unknown_calendar"],
+      [{ ...input, calendar: "2" }, "calendar_not_writable"],
+      [{ ...input, calendar: "3" }, "calendar_not_writable"],
+      [{ ...input, calendar: "4" }, "calendar_not_writable"],
+      [{ ...input, calendar: "https://evil.example" }, "bad_input"],
+      [(({ calendar, ...rest }) => rest)(input), "bad_input"],
+    ];
+    const { out, calls } = runImporter(
+      `${make}
+      const cases = ${JSON.stringify(cases.map((c) => c[0]))};
+      const res = [];
+      for (const c of cases) {
+        for (const fn of ["previewCreate", "create"]) {
+          try { await sky.calendar[fn](c); res.push({ fn, ok: true }); }
+          catch (e) { res.push({ fn, name: e.name, code: e.code, ids: e.ids ?? null }); }
+        }
+      }
+      return res;`,
+      fx()
+    );
+    const res = out as Array<{ fn: string; name: string; code: string; ids: string[] | null }>;
+    cases.forEach(([, code, ids], i) => {
+      for (const r of [res[2 * i]!, res[2 * i + 1]!]) {
+        expect(r, `${r.fn} case ${i}`).toMatchObject({ name: "SkylightWriteError", code });
+        if (ids) expect(r.ids).toEqual(ids);
+      }
+    });
+    expect(posts(calls)).toEqual([]);
+  });
+
+  it("W6. Skylight's own error text never reaches the importer; a refusal and an unknown outcome are told apart", () => {
+    const refused = runImporter(`${make}\n${tryCall(`sky.calendar.create(${JSON.stringify(input)})`)}`, fx({ "POST /calendar_events": { __status: 422, errors: ["SKYLIGHT_SAYS_SECRET person.two@example.com"] } }));
+    expect(refused.out).toMatchObject({ ok: false, name: "SkylightWriteError", code: "skylight_refused", status: 422 });
+    const server = runImporter(`${make}\n${tryCall(`sky.calendar.create(${JSON.stringify(input)})`)}`, fx({ "POST /calendar_events": { __status: 503, errors: ["SKYLIGHT_SAYS_SECRET"] } }));
+    expect(server.out).toMatchObject({ ok: false, name: "SkylightWriteError", code: "outcome_unknown" });
+    const network = runImporter(`${make}\n${tryCall(`sky.calendar.create(${JSON.stringify(input)})`)}`, fx({ "POST /calendar_events": { __throw: true } }));
+    expect(network.out).toMatchObject({ ok: false, name: "SkylightWriteError", code: "outcome_unknown" });
+    for (const r of [refused, server]) {
+      expect(JSON.stringify(r.out)).not.toContain("SKYLIGHT_SAYS_SECRET");
+      expect(JSON.stringify(r.out)).not.toMatch(EMAIL);
+      expect(posts(r.calls)).toHaveLength(1);
+    }
+  });
+
+  it("W7. a list that lags the write is waited for; one that never shows it, or shows other fields, is not_confirmed with the new id", () => {
+    const empty = { data: [] };
+    const lag = runImporter(`${make}\n${tryCall(`sky.calendar.create(${JSON.stringify(input)})`)}`, fx({ "/calendar_events": { __sequence: [empty, empty, { data: [stored()] }] } }));
+    expect(lag.out).toMatchObject({ ok: true, value: { id: "5001", title: "Practice" } });
+    const never = runImporter(`${make}\n${tryCall(`sky.calendar.create(${JSON.stringify(input)})`)}`, fx({ "/calendar_events": empty }));
+    expect(never.out).toMatchObject({ ok: false, name: "SkylightWriteError", code: "not_confirmed", eventId: "5001" });
+    expect(posts(never.calls)).toHaveLength(1);
+    const wrong = runImporter(`${make}\n${tryCall(`sky.calendar.create(${JSON.stringify(input)})`)}`, fx({ "/calendar_events": { data: [stored({ starts_at: "2037-03-03T17:00:00.000-08:00" })] } }));
+    expect(wrong.out).toMatchObject({ ok: false, code: "not_confirmed", eventId: "5001" });
+    const noProfile = runImporter(`${make}\n${tryCall(`sky.calendar.create(${JSON.stringify(input)})`)}`, fx({ "/calendar_events": { data: [stored({}, ["91"])] } }));
+    expect(noProfile.out).toMatchObject({ ok: false, code: "not_confirmed" });
+    const extraLabel = runImporter(`${make}\n${tryCall(`sky.calendar.create(${JSON.stringify(input)})`)}`, fx({ "/calendar_events": { data: [stored({}, ["11", "91", "90"])] } }));
+    expect(extraLabel.out).toMatchObject({ ok: true, value: { labelIds: ["91", "90"] } });
+  }, 30_000);
+
+  it("W8. a sign-in failure stays an AuthenticationError, not a write error", () => {
+    const { out } = runImporter(`${make}\n${tryCall(`sky.calendar.create(${JSON.stringify(input)})`)}`, fx({ "POST /calendar_events": { __status: 401 } }));
+    expect(out).toMatchObject({ ok: false, name: "AuthenticationError" });
+  });
+
+  it("W9. the root still exports only createSkylight; the declarations carry the write types", () => {
+    const { out } = runImporter(`return Object.keys(lib);`);
+    expect(out).toEqual(["createSkylight"]);
+    const dts = fs.readFileSync(path.join(proj, "node_modules/@davidwoods/skylight-mcp/dist/lib.d.ts"), "utf8");
+    expect(dts).toMatch(/previewCreate\(input: CreateEventInput\): Promise<CreatePreview>/);
+    expect(dts).toMatch(/create\(input: CreateEventInput\): Promise<EventDto>/);
+    expect(dts).toMatch(/writable: boolean/);
   });
 });
 
