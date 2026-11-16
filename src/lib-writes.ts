@@ -16,12 +16,13 @@
  */
 
 import { getClient } from "./api/client.js";
-import { getCalendarEvents, createCalendarEvent } from "./api/endpoints/calendar.js";
+import { getCalendarEvents, createCalendarEvent, deleteCalendarEvent, updateCalendarEvent } from "./api/endpoints/calendar.js";
 import { getCategories } from "./api/endpoints/categories.js";
 import { isoWithOffset } from "./api/endpoints/messages.js";
 import { readBackUntil } from "./api/endpoints/source-calendars.js";
 import type { CalendarEventResource, CategoryResource, CreateCalendarEventRequest, SourceCalendarResource } from "./api/types.js";
 import { addDays, dateInZone, toLocalParts, zonedToEpoch } from "./utils/schedule.js";
+import { planSeries, SeriesError, type SeriesInput } from "./utils/series.js";
 
 export type WriteErrorCode =
   | "bad_input"
@@ -34,6 +35,12 @@ export type WriteErrorCode =
   | "unknown_calendar"
   | "calendar_not_writable"
   | "unsupported"
+  | "invalid_repeat"
+  | "not_found"
+  | "stale"
+  | "not_editable"
+  | "scope_required"
+  | "scope_not_allowed"
   | "skylight_refused"
   | "outcome_unknown"
   | "not_confirmed";
@@ -80,6 +87,13 @@ export interface CreateEventInput {
   /** Label ids from `labels.list()`. A label a synced calendar writes to is refused. */
   labelIds?: string[];
   calendar: string;
+  /**
+   * Make it a repeating series. `every`: "day", "week", "month" or "year"; `interval` (default 1);
+   * monthly `monthlyOn`: "date" (the start's day, default) or "weekday" (e.g. the 3rd Tuesday, from
+   * the start); end with `until` (YYYY-MM-DD) or `count`. Daily and weekly need an end; monthly and
+   * yearly may be open-ended. Weekly repeats on the start's weekday only.
+   */
+  repeat?: SeriesInput;
 }
 
 /** Exactly what a create would write, in library terms. Times are as they will be sent (ISO with the frame's offset, or dates for all day). */
@@ -97,9 +111,13 @@ export interface CreatePreview {
   labels: string[];
   calendar: { id: string; label: string; kind: "skylight" | "google" };
   timezone: string;
+  /** For a series: the rule in words, its first dates, and months or years it skips. Null for a one-off. */
+  repeat: { rule: string; first: string[]; skipped: string[]; last: string | null } | null;
+  /** Things the person may not expect, e.g. months a monthly rule skips. Show them with the preview. */
+  warnings: string[];
 }
 
-const CREATE_KEYS = new Set(["title", "start", "end", "allDay", "location", "notes", "profileIds", "labelIds", "calendar"]);
+const CREATE_KEYS = new Set(["title", "start", "end", "allDay", "location", "notes", "profileIds", "labelIds", "calendar", "repeat"]);
 const TITLE_MAX = 200;
 const LOCATION_MAX = 500;
 const NOTES_MAX = 5000;
@@ -171,6 +189,8 @@ interface CreatePlan {
   endMs: number;
   categoryIds: string[];
   source: "skylight" | "google";
+  /** FREQ of a series, for the read-back; null for a one-off. */
+  freq: string | null;
 }
 
 /** The one check behind previewCreate and create. Reads categories and calendars fresh every time. */
@@ -225,6 +245,16 @@ export async function planCreate(input: unknown, timeZone: string): Promise<Crea
   const notes = optionalText(raw.notes, "notes", NOTES_MAX);
   const profileIds = idList(raw.profileIds, "profileIds");
   const labelIds = idList(raw.labelIds, "labelIds");
+  let series: ReturnType<typeof planSeries> | null = null;
+  if (raw.repeat !== undefined) {
+    const startTime = allDay ? "00:00" : `${String(toLocalParts(startMs, timeZone).hour).padStart(2, "0")}:${String(toLocalParts(startMs, timeZone).minute).padStart(2, "0")}`;
+    try {
+      series = planSeries(raw.repeat, startDate, startTime, timeZone);
+    } catch (error) {
+      if (error instanceof SeriesError) throw writeError("invalid_repeat", error.message);
+      throw error;
+    }
+  }
   if (typeof raw.calendar !== "string" || (raw.calendar !== "skylight" && !ID.test(raw.calendar))) {
     throw writeError("bad_input", 'calendar is required: "skylight", or the id of a Google calendar from calendar.sources().');
   }
@@ -274,6 +304,7 @@ export async function planCreate(input: unknown, timeZone: string): Promise<Crea
     description: notes ?? "",
     location: location ?? "",
     category_ids: categoryIds,
+    ...(series ? { rrule: [series.rrule] } : {}),
     ...(target ? { calendar_id: target.calendarId, calendar_account_id: target.accountId } : {}),
   };
   const preview: CreatePreview = {
@@ -290,8 +321,11 @@ export async function planCreate(input: unknown, timeZone: string): Promise<Crea
     labels: labelIds.map((id) => name(byId.get(id)!)),
     calendar: target ? { id: target.id, label: target.label, kind: "google" } : { id: "skylight", label: "Skylight", kind: "skylight" },
     timezone: timeZone,
+    repeat: series ? { rule: series.rule, first: series.first, skipped: series.skipped, last: series.last } : null,
+    warnings: series ? [...series.warnings] : [],
   };
-  return { preview, body, startDate, endDate, startMs, endMs, categoryIds, source: target ? "google" : "skylight" };
+  const freq = series ? /FREQ=([A-Z]+)/.exec(series.rrule)![1]! : null;
+  return { preview, body, startDate, endDate, startMs, endMs, categoryIds, source: target ? "google" : "skylight", freq };
 }
 
 /** Map anything the write itself threw to the library's own error, never Skylight's text. Sign-in errors pass through. */
@@ -321,6 +355,10 @@ function matchesPlan(event: CalendarEventResource, plan: CreatePlan, categoryIds
   }
   if (!sameText(a.location, plan.preview.location) || !sameText(a.description, plan.preview.notes)) return false;
   if (a.source !== plan.source) return false;
+  if (plan.freq !== null) {
+    const rule = Array.isArray(a.rrule) ? a.rrule.join(";") : "";
+    if (a.recurring !== true || !rule.includes(`FREQ=${plan.freq}`)) return false;
+  } else if (a.recurring === true) return false;
   const stored = new Set(categoryIdsOf(event));
   return plan.categoryIds.every((id) => stored.has(id));
 }
@@ -359,4 +397,386 @@ export async function commitCreate(
     );
   }
   return stored;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Stage 2: update and delete. An event is named by what a read returned: its id, the date it was
+// read on, and its version (a fingerprint of the fields shown). The commit reads the event again
+// and refuses if the version moved, so an edit made from an old screen is refused, not applied.
+// Skylight has no conditional write, so a change landing between that re-read and the write is
+// not caught.
+// ---------------------------------------------------------------------------------------------
+
+/** FNV-1a, twice with different seeds: a stable 16-hex fingerprint with no crypto (runs in Workers). */
+function fnv(text: string, seed: number): string {
+  let h = seed >>> 0;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+/** The version of an event as read: changes when its title, times, all-day, location, notes, people, labels or rule change. */
+export function eventVersion(event: CalendarEventResource, categoryIdsOf: (e: CalendarEventResource) => string[]): string {
+  const a = event.attributes as Record<string, unknown>;
+  const text = JSON.stringify([
+    String(event.id),
+    typeof a.summary === "string" ? a.summary : "",
+    Date.parse(String(a.starts_at)),
+    Date.parse(String(a.ends_at)),
+    a.all_day === true,
+    typeof a.location === "string" ? a.location.trim() : "",
+    typeof a.description === "string" ? a.description.trim() : "",
+    [...categoryIdsOf(event)].sort(),
+    Array.isArray(a.rrule) ? a.rrule.join("|") : "",
+    a.master_event_id == null ? "" : String(a.master_event_id),
+  ]);
+  return fnv(text, 0x811c9dc5) + fnv(text, 0x9747b28c);
+}
+
+/** What a read returned for one event: the id, the date it was read on, and its version. */
+export interface EventRef {
+  id: string;
+  date: string;
+  version: string;
+}
+
+export interface UpdateEventInput extends EventRef {
+  /** Repeating events only: "one" (this occurrence; it becomes its own event) or "all" (the whole series). */
+  scope?: "one" | "all";
+  /**
+   * What to change; anything left out stays. One-off events (and occurrences already edited on their
+   * own): any field. A series: title, profileIds, labelIds, and start with end on the same date (time
+   * of day only). Times as for create.
+   */
+  changes: {
+    title?: string;
+    start?: string;
+    end?: string;
+    allDay?: boolean;
+    location?: string;
+    notes?: string;
+    profileIds?: string[];
+    labelIds?: string[];
+  };
+}
+
+export interface DeleteEventInput extends EventRef {
+  /** Repeating events only: "one", "future" (this and every later one) or "all" (the whole series). */
+  scope?: "one" | "future" | "all";
+}
+
+/** The event as read before the change, in library terms. Produced by the caller's projection. */
+export type EventProjection<T> = (event: CalendarEventResource) => Promise<T>;
+
+export interface UpdatePreview<T> {
+  action: "update";
+  /** The event as it is now. */
+  event: T;
+  scope: "one" | "all" | null;
+  /** The fields that will be written, in library terms (times as they will be sent). */
+  changes: { title?: string; start?: string; end?: string; allDay?: boolean; location?: string | null; notes?: string | null; profileIds?: string[]; labelIds?: string[] };
+  /** What the change reaches, in words. */
+  effect: string;
+  /** True when the event is on a Google calendar: the change reaches Google for everyone who shares it. */
+  google: boolean;
+  warnings: string[];
+}
+
+export interface DeletePreview<T> {
+  action: "delete";
+  event: T;
+  scope: "one" | "future" | "all" | null;
+  effect: string;
+  google: boolean;
+}
+
+const REF_KEYS = ["id", "date", "version"];
+const UPDATE_KEYS = new Set([...REF_KEYS, "scope", "changes"]);
+const DELETE_KEYS = new Set([...REF_KEYS, "scope"]);
+const CHANGE_KEYS = new Set(["title", "start", "end", "allDay", "location", "notes", "profileIds", "labelIds"]);
+const EVENT_ID = /^\d+(-\d+)?$/;
+
+interface Found {
+  event: CalendarEventResource;
+  kind: "one-off" | "series" | "detached";
+  google: boolean;
+}
+
+/** Read the event fresh and check it is the one the caller saw and that Skylight can change it. */
+async function findForWrite(
+  raw: Record<string, unknown>,
+  keys: Set<string>,
+  timeZone: string,
+  categoryIdsOf: (e: CalendarEventResource) => string[],
+  verb: string
+): Promise<Found> {
+  for (const key of Object.keys(raw)) if (!keys.has(key)) throw writeError("bad_input", `Unknown field "${key}".`);
+  if (typeof raw.id !== "string" || !EVENT_ID.test(raw.id)) throw writeError("bad_input", "id must be an event id from calendar.events().");
+  if (typeof raw.date !== "string" || !realDate(raw.date)) throw writeError("bad_input", "date must be the event's date, YYYY-MM-DD, as read.");
+  if (typeof raw.version !== "string" || raw.version === "") throw writeError("bad_input", "version is required: pass the event's version from calendar.events().");
+  const list = await getCalendarEvents({ dateMin: raw.date, dateMax: raw.date, timezone: timeZone });
+  const event = list.find((e) => String(e.id) === raw.id);
+  if (!event) throw writeError("not_found", `No event with that id on ${raw.date}: it may have moved or been deleted. Read the calendar again.`);
+  if (eventVersion(event, categoryIdsOf) !== raw.version) {
+    throw writeError("stale", `The event changed since it was read. Nothing was ${verb}: read it again and show the new version before asking again.`);
+  }
+  const a = event.attributes as Record<string, unknown>;
+  if (a.source !== "skylight" && a.source !== "google") throw writeError("not_editable", "That event comes from a subscribed calendar, which is read-only.");
+  if (a.editable === false) throw writeError("not_editable", "Skylight marks that event as not editable.");
+  const detached = a.master_event_id != null && a.master_event_id !== "";
+  const series = !detached && (a.recurring === true || a.recurring_config === true);
+  return { event, kind: detached ? "detached" : series ? "series" : "one-off", google: a.source === "google" };
+}
+
+function seriesKeyOf(event: CalendarEventResource): { uid: string; number: string } {
+  const a = event.attributes as Record<string, unknown>;
+  return { uid: typeof a.uid === "string" ? a.uid : "", number: String(event.id).split("-")[0]! };
+}
+
+interface UpdatePlan {
+  found: Found;
+  scope: "one" | "all" | null;
+  body: Record<string, unknown>;
+  changes: UpdatePreview<unknown>["changes"];
+  effect: string;
+  /** What the read-back must see. */
+  expect: { title?: string; startMs?: number; endMs?: number; allDay?: boolean; location?: string | null; notes?: string | null; categoryIds: string[]; readDates: string[] };
+}
+
+/** The one check behind previewUpdate and update. */
+export async function planUpdate(input: unknown, timeZone: string, categoryIdsOf: (e: CalendarEventResource) => string[]): Promise<UpdatePlan> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw writeError("bad_input", "update needs an object: id, date, version, changes.");
+  const raw = input as Record<string, unknown>;
+  const changesRaw = raw.changes;
+  if (!changesRaw || typeof changesRaw !== "object" || Array.isArray(changesRaw)) throw writeError("bad_input", "changes must be an object of the fields to change.");
+  const c = changesRaw as Record<string, unknown>;
+  for (const key of Object.keys(c)) if (!CHANGE_KEYS.has(key)) throw writeError("bad_input", `Unknown change "${key}".`);
+  if (Object.keys(c).length === 0) throw writeError("bad_input", "Nothing to change.");
+  if (raw.scope !== undefined && raw.scope !== "one" && raw.scope !== "all") {
+    throw writeError("scope_not_allowed", raw.scope === "future" ? 'Skylight refuses "this and following" for an edit: use "one" or "all".' : 'scope must be "one" or "all".');
+  }
+
+  const found = await findForWrite(raw, UPDATE_KEYS, timeZone, categoryIdsOf, "changed");
+  const a = found.event.attributes as Record<string, unknown>;
+  const scope = (raw.scope as "one" | "all" | undefined) ?? null;
+  if (found.kind === "series" && scope === null) throw writeError("scope_required", 'That is an occurrence of a repeating event: say scope "one" (only this one) or "all" (the whole series).');
+  if (found.kind !== "series" && scope !== null) throw writeError("scope_not_allowed", "scope applies to an occurrence of a repeating event only.");
+  if (found.kind === "series") {
+    const bad = ["allDay", "location", "notes"].filter((k) => c[k] !== undefined);
+    if (bad.length) throw writeError("unsupported", `On a repeating event only the title, people, labels and time of day can be changed here (${bad.join(", ")} on a series is not verified).`);
+    if ((c.start === undefined) !== (c.end === undefined)) throw writeError("invalid_time", "To change a repeating event's time give both start and end.");
+  }
+
+  const changes: UpdatePlan["changes"] = {};
+  const body: Record<string, unknown> = {};
+  const expect: UpdatePlan["expect"] = { categoryIds: [], readDates: [raw.date as string] };
+
+  if (c.title !== undefined) {
+    if (typeof c.title !== "string" || c.title.trim() === "") throw writeError("invalid_title", "title must be non-empty text.");
+    const title = c.title.trim();
+    if (title.length > TITLE_MAX) throw writeError("invalid_title", `title is longer than ${TITLE_MAX} characters.`);
+    if (/[\r\n]/.test(title) || CONTROL.test(title)) throw writeError("invalid_title", "title must be one line with no control characters.");
+    changes.title = title;
+    body.summary = title;
+    expect.title = title;
+  }
+
+  const wasAllDay = a.all_day === true;
+  if (c.allDay !== undefined && typeof c.allDay !== "boolean") throw writeError("bad_input", "allDay must be true or false.");
+  const allDay = c.allDay === undefined ? wasAllDay : c.allDay;
+  if (c.allDay !== undefined && c.allDay !== wasAllDay && (c.start === undefined)) {
+    throw writeError("invalid_time", "Changing all-day needs a new start (and end for a timed event).");
+  }
+  if (c.start !== undefined || c.end !== undefined) {
+    if (c.start !== undefined && typeof c.start !== "string") throw writeError("invalid_time", "start must be text.");
+    if (c.end !== undefined && typeof c.end !== "string") throw writeError("invalid_time", "end must be text.");
+    let startMs: number;
+    let endMs: number;
+    if (allDay) {
+      const day = (c.start as string | undefined) ?? dateInZone(Date.parse(String(a.starts_at)), timeZone);
+      if (!realDate(day)) throw writeError("invalid_time", "For an all-day event start must be a date, YYYY-MM-DD.");
+      if (c.end !== undefined && c.end !== day) throw writeError("unsupported", "An all-day event covers one day: leave end out or give the same date.");
+      startMs = zonedToEpoch(day, "00:00", timeZone);
+      endMs = zonedToEpoch(addDays(day, 1), "00:00", timeZone);
+      body.starts_at = day;
+      body.ends_at = addDays(day, 1);
+      changes.start = day;
+      changes.end = addDays(day, 1);
+      expect.readDates.push(day);
+    } else {
+      startMs = c.start !== undefined ? localToEpoch(c.start as string, timeZone, "start") : Date.parse(String(a.starts_at));
+      endMs = c.end !== undefined ? localToEpoch(c.end as string, timeZone, "end") : Date.parse(String(a.ends_at));
+      if (endMs <= startMs) throw writeError("end_before_start", "end must be after start.");
+      if (found.kind === "series" && (dateInZone(startMs, timeZone) !== raw.date || dateInZone(endMs - 1, timeZone) !== raw.date)) {
+        throw writeError("unsupported", `A time change on a repeating event keeps its date (${raw.date as string}): only the time of day changes.`);
+      }
+      body.starts_at = isoWithOffset(startMs, timeZone);
+      body.ends_at = isoWithOffset(endMs, timeZone);
+      changes.start = body.starts_at as string;
+      changes.end = body.ends_at as string;
+      expect.readDates.push(dateInZone(startMs, timeZone));
+    }
+    if (found.kind === "series") body.timezone = timeZone;
+    expect.startMs = startMs;
+    expect.endMs = endMs;
+  }
+  if (c.allDay !== undefined) {
+    body.all_day = allDay;
+    changes.allDay = allDay;
+    expect.allDay = allDay;
+  }
+  if (c.location !== undefined) {
+    const v = optionalText(c.location, "location", LOCATION_MAX);
+    body.location = v ?? "";
+    changes.location = v;
+    expect.location = v;
+  }
+  if (c.notes !== undefined) {
+    const v = optionalText(c.notes, "notes", NOTES_MAX);
+    body.description = v ?? "";
+    changes.notes = v;
+    expect.notes = v;
+  }
+
+  // People and labels: the app re-sends the whole set with every edit. Keep what is not being changed,
+  // including the label Skylight puts on a Google calendar's events.
+  const categories = await getCategories(false);
+  const byId = new Map(categories.map((x) => [String(x.id), x]));
+  const current = categoryIdsOf(found.event);
+  const currentProfiles = current.filter((id) => byId.get(id)?.attributes.linked_to_profile === true);
+  const currentLabels = current.filter((id) => byId.get(id)?.attributes.linked_to_profile !== true);
+  let profiles = currentProfiles;
+  let labels = currentLabels;
+  if (c.profileIds !== undefined) {
+    profiles = idList(c.profileIds, "profileIds");
+    const bad = profiles.filter((id) => byId.get(id)?.attributes.linked_to_profile !== true);
+    if (bad.length) throw writeError("unknown_profile", "Not a profile on this frame: see profiles.list().", { ids: bad });
+    changes.profileIds = profiles;
+  }
+  if (c.labelIds !== undefined) {
+    labels = idList(c.labelIds, "labelIds");
+    const unknown = labels.filter((id) => {
+      const x = byId.get(id);
+      return !x || x.attributes.linked_to_profile === true;
+    });
+    if (unknown.length) throw writeError("unknown_label", "Not a label on this frame: see labels.list().", { ids: unknown });
+    const fed = labels.filter((id) => !currentLabels.includes(id) && (byId.get(id)?.relationships?.source_calendars?.data ?? []).length > 0);
+    if (fed.length) throw writeError("label_not_assignable", "A synced calendar writes to this label; Skylight assigns it itself.", { ids: fed });
+    changes.labelIds = labels;
+  }
+  body.category_ids = [...profiles, ...labels];
+  expect.categoryIds = [...profiles, ...labels];
+
+  const title = typeof a.summary === "string" ? a.summary : "this event";
+  const effect =
+    found.kind === "series"
+      ? scope === "one"
+        ? `only the occurrence on ${raw.date as string}; it becomes its own event with a new id`
+        : `the whole series "${title}", every occurrence, including ones edited on their own`
+      : found.kind === "detached"
+        ? `this occurrence of "${title}", which was already edited on its own`
+        : `"${title}"`;
+  return { found, scope, body, changes, effect, expect };
+}
+
+function matchesExpect(event: CalendarEventResource, expect: UpdatePlan["expect"], categoryIdsOf: (e: CalendarEventResource) => string[]): boolean {
+  const a = event.attributes as Record<string, unknown>;
+  if (expect.title !== undefined && a.summary !== expect.title) return false;
+  if (expect.startMs !== undefined && Date.parse(String(a.starts_at)) !== expect.startMs) return false;
+  if (expect.endMs !== undefined && Date.parse(String(a.ends_at)) !== expect.endMs) return false;
+  if (expect.allDay !== undefined && (a.all_day === true) !== expect.allDay) return false;
+  if (expect.location !== undefined && !sameText(a.location, expect.location)) return false;
+  if (expect.notes !== undefined && !sameText(a.description, expect.notes)) return false;
+  const stored = new Set(categoryIdsOf(event));
+  return expect.categoryIds.every((id) => stored.has(id));
+}
+
+/**
+ * Update, then read back. Resolves with the event as stored, under its id after the change: an edit
+ * of one occurrence makes a new event, and a time edit of a series changes every occurrence's id.
+ */
+export async function commitUpdate(input: unknown, timeZone: string, categoryIdsOf: (e: CalendarEventResource) => string[]): Promise<CalendarEventResource> {
+  const plan = await planUpdate(input, timeZone, categoryIdsOf);
+  const id = String(plan.found.event.id);
+  try {
+    await updateCalendarEvent(id, plan.body as never, plan.scope ?? undefined);
+  } catch (error) {
+    throw mapWriteFailure(error);
+  }
+  const key = seriesKeyOf(plan.found.event);
+  const dates = [...new Set(plan.expect.readDates)].sort();
+  const pick = (list: CalendarEventResource[]): CalendarEventResource | undefined => {
+    const fits = (e: CalendarEventResource) => matchesExpect(e, plan.expect, categoryIdsOf);
+    if (plan.found.kind !== "series") return list.find((e) => String(e.id) === id && fits(e));
+    if (plan.scope === "one") {
+      // The split-off occurrence: a plain id, pointing back at the series.
+      return list.find((e) => {
+        const m = (e.attributes as Record<string, unknown>).master_event_id;
+        return m != null && (String(m) === key.uid || String(m) === key.number) && fits(e);
+      });
+    }
+    // Whole series: the occurrence on this date, same series.
+    return list.find((e) => String(e.id).split("-")[0] === key.number && fits(e));
+  };
+  const back = await readBackUntil(
+    () => getCalendarEvents({ dateMin: dates[0]!, dateMax: dates[dates.length - 1]!, timezone: timeZone }),
+    (list) => pick(list) !== undefined
+  );
+  const stored = pick(back.value);
+  if (!back.ok || !stored) {
+    throw writeError("not_confirmed", "Skylight accepted the change but reading it back did not show it as asked. Read the calendar before trying again.", { eventId: id });
+  }
+  return stored;
+}
+
+interface DeletePlan {
+  found: Found;
+  scope: "one" | "future" | "all" | null;
+  effect: string;
+  date: string;
+}
+
+/** The one check behind previewDelete and delete. */
+export async function planDelete(input: unknown, timeZone: string, categoryIdsOf: (e: CalendarEventResource) => string[]): Promise<DeletePlan> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw writeError("bad_input", "delete needs an object: id, date, version.");
+  const raw = input as Record<string, unknown>;
+  if (raw.scope !== undefined && raw.scope !== "one" && raw.scope !== "future" && raw.scope !== "all") {
+    throw writeError("bad_input", 'scope must be "one", "future" or "all".');
+  }
+  const found = await findForWrite(raw, DELETE_KEYS, timeZone, categoryIdsOf, "deleted");
+  const scope = (raw.scope as DeletePlan["scope"] | undefined) ?? null;
+  if (found.kind === "series" && scope === null) {
+    throw writeError("scope_required", 'That is an occurrence of a repeating event: say scope "one", "future" (this and every later one) or "all" (the whole series).');
+  }
+  if (found.kind !== "series" && scope !== null) throw writeError("scope_not_allowed", "scope applies to an occurrence of a repeating event only.");
+  const a = found.event.attributes as Record<string, unknown>;
+  const title = typeof a.summary === "string" ? a.summary : "this event";
+  const date = raw.date as string;
+  const effect =
+    scope === "one" ? `only the occurrence of "${title}" on ${date}`
+    : scope === "future" ? `"${title}" on ${date} and every later occurrence`
+    : scope === "all" ? `the whole series "${title}", every occurrence past and future, including ones edited on their own`
+    : found.kind === "detached" ? `this occurrence of "${title}", which was edited on its own (the rest of the series stays)`
+    : `"${title}"`;
+  return { found, scope, effect, date };
+}
+
+/** Delete, then read the date back until the event is gone. */
+export async function commitDelete(input: unknown, timeZone: string, categoryIdsOf: (e: CalendarEventResource) => string[]): Promise<{ deleted: true; id: string; scope: DeletePlan["scope"] }> {
+  const plan = await planDelete(input, timeZone, categoryIdsOf);
+  const id = String(plan.found.event.id);
+  try {
+    // An occurrence edited on its own is deleted by its own id with no scope, as the app does.
+    await deleteCalendarEvent(id, plan.scope ?? undefined);
+  } catch (error) {
+    throw mapWriteFailure(error);
+  }
+  const back = await readBackUntil(
+    () => getCalendarEvents({ dateMin: plan.date, dateMax: plan.date, timezone: timeZone }),
+    (list) => !list.some((e) => String(e.id) === id)
+  );
+  if (!back.ok) throw writeError("not_confirmed", "Skylight accepted the delete but the event still shows on reading it back. Read the calendar before trying again.", { eventId: id });
+  return { deleted: true, id, scope: plan.scope };
 }

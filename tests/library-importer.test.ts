@@ -125,7 +125,7 @@ describe("library entry, from the importer's side (packed package)", () => {
   it("1b. the created object has exactly the Phase 1 read methods, no more", () => {
     const { out } = runImporter(`${make}\nreturn Object.fromEntries(Object.entries(sky).map(([k, v]) => [k, Object.keys(v).sort()]));`);
     expect(out).toEqual({
-      calendar: ["create", "events", "previewCreate", "sources"],
+      calendar: ["create", "delete", "events", "previewCreate", "previewDelete", "previewUpdate", "sources", "update"],
       profiles: ["list"],
       labels: ["list"],
       chores: ["list"],
@@ -401,7 +401,7 @@ describe("event create, stage 1 of library writes (2026-11-15)", () => {
     expect(out).toEqual({
       action: "create", title: "Practice", start: "2037-03-03T16:00:00.000-08:00", end: "2037-03-03T17:00:00.000-08:00", allDay: false,
       location: "Gym", notes: "Bring water", profileIds: ["11"], profiles: ["Alex"], labelIds: ["91"], labels: ["Chores"],
-      calendar: { id: "skylight", label: "Skylight", kind: "skylight" }, timezone: "America/Los_Angeles",
+      calendar: { id: "skylight", label: "Skylight", kind: "skylight" }, timezone: "America/Los_Angeles", repeat: null, warnings: [],
     });
   });
 
@@ -545,6 +545,219 @@ describe("event create, stage 1 of library writes (2026-11-15)", () => {
     expect(dts).toMatch(/create\(input: CreateEventInput\): Promise<EventDto>/);
     expect(dts).toMatch(/writable: boolean/);
   });
+});
+
+describe("library writes stage 2: series create, update, delete (2026-11-16)", () => {
+  const cats = [
+    { id: "11", type: "category", attributes: { label: "Alex", color: "#2178AF", linked_to_profile: true } },
+    { id: "12", type: "category", attributes: { label: "Jordan", color: "#CB434C", linked_to_profile: true } },
+    { id: "90", type: "category", attributes: { label: "Family cal", color: "#B6E085", linked_to_profile: false }, relationships: { source_calendars: { data: [{ id: "1", type: "source_calendar" }] } } },
+    { id: "91", type: "category", attributes: { label: "Chores", color: "#DADADA", linked_to_profile: false }, relationships: { source_calendars: { data: [] } } },
+  ];
+  const ev = (id: string, over: Record<string, unknown> = {}, catIds: string[] = ["11"]) => ({
+    id, type: "calendar_event",
+    attributes: {
+      summary: "Practice", starts_at: "2037-03-03T16:00:00.000-08:00", ends_at: "2037-03-03T17:00:00.000-08:00", all_day: false,
+      location: "", description: "", source: "skylight", editable: true, recurring: false, recurring_config: false, rrule: null,
+      master_event_id: null, uid: `uid-${id}`, timezone: "America/Los_Angeles", ...over,
+    },
+    relationships: { categories: { data: catIds.map((c) => ({ id: c, type: "category" })) } },
+  });
+  const oneOff = ev("5001");
+  const series = ev("6001-2119392000", { summary: "Swim", recurring: true, recurring_config: true, rrule: ["RRULE:FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU"], uid: "series-uid-6001" });
+  const detached = ev("7001", { summary: "Swim moved", master_event_id: "6001", uid: "series-uid-6001_20370303T000000Z" });
+  const feed = ev("8001", { summary: "League game", source: "ics_link", editable: false });
+  const google = ev("9001", { summary: "Dentist", source: "google" }, ["11", "90"]);
+  const day = [oneOff, series, detached, feed, google];
+  const fx = (list: unknown, extra: Record<string, unknown> = {}) => fixtures({ "/categories": { data: cats }, "/source_calendars": { data: [] }, "/calendar_events": list, ...extra });
+  const seq = (...lists: unknown[][]) => ({ __sequence: lists.map((data) => ({ data })) });
+  const writes = (calls: Call[]) => calls.filter((c) => c.method !== "GET");
+  const pathOf = (c: Call) => new URL(c.url).pathname;
+  const queryOf = (c: Call) => Object.fromEntries(new URL(c.url).searchParams);
+  const attempt = (expr: string) => `try { return { ok: true, value: await ${expr} }; } catch (e) { return { ok: false, name: e.name, code: e.code, ids: e.ids, eventId: e.eventId, message: String(e.message) }; }`;
+  const withVersions = `const read = await sky.calendar.events({ from: "2037-03-03", to: "2037-03-03" }); const v = Object.fromEntries(read.map((e) => [e.id, e.version]));`;
+
+  it("S1. a monthly series on the 31st: the preview names the rule, the first dates and the skipped months; create sends exactly that rule and returns the series", () => {
+    const input = { title: "Rent", start: "2037-01-31T09:00", end: "2037-01-31T09:30", calendar: "skylight", repeat: { every: "month", until: "2037-06-30" } };
+    const stored = ev("4001-2116940400", { summary: "Rent", starts_at: "2037-01-31T09:00:00.000-08:00", ends_at: "2037-01-31T09:30:00.000-08:00", recurring: true, recurring_config: true, rrule: ["RRULE:FREQ=MONTHLY;INTERVAL=1;UNTIL=20370531T235959Z;BYMONTHDAY=31"] }, []);
+    const { out, calls } = runImporter(
+      `${make}\nconst p = await sky.calendar.previewCreate(${JSON.stringify(input)});\nconst e = await sky.calendar.create(${JSON.stringify(input)});\nreturn { p, e };`,
+      fx({ data: [stored] }, { "POST /calendar_events": { data: { id: "4001-2116940400", type: "calendar_event", attributes: {} } } })
+    );
+    const o = out as { p: { repeat: Record<string, unknown>; warnings: string[] }; e: Record<string, unknown> };
+    expect(o.p.repeat).toEqual({ rule: "every month on the 31st, last on 2037-05-31", first: ["2037-01-31", "2037-03-31", "2037-05-31"], skipped: ["2037-02", "2037-04", "2037-06"], last: "2037-05-31" });
+    expect(o.p.warnings).toEqual(["Months without a 31st are skipped, not moved: 2037-02, 2037-04, 2037-06."]);
+    const post = writes(calls);
+    expect(post).toHaveLength(1);
+    expect(JSON.parse(post[0]!.body!).rrule).toEqual(["RRULE:FREQ=MONTHLY;INTERVAL=1;UNTIL=20370531T235959Z;BYMONTHDAY=31"]);
+    expect(o.e).toMatchObject({ id: "4001-2116940400", title: "Rent", recurring: true, seriesId: "4001" });
+  });
+
+  it("S2. the other captured rule shapes: 3rd Tuesday, yearly with no end, weekly; and bad repeats are refused before any write", () => {
+    const base = { title: "X", start: "2037-01-20T09:00", end: "2037-01-20T10:00", calendar: "skylight" };
+    const { out, calls } = runImporter(
+      `${make}
+      const r = {};
+      r.weekday = (await sky.calendar.previewCreate({ ...${JSON.stringify(base)}, repeat: { every: "month", monthlyOn: "weekday", count: 3 } })).repeat.rule;
+      r.yearly = (await sky.calendar.previewCreate({ title: "Bday", start: "2037-01-20", allDay: true, calendar: "skylight", repeat: { every: "year" } })).repeat;
+      r.weekly = (await sky.calendar.previewCreate({ ...${JSON.stringify(base)}, repeat: { every: "week", count: 2 } })).repeat.first;
+      const bad = [{ every: "day" }, { every: "week", until: "2037-01-01" }, { every: "fortnight", count: 2 }, { every: "month", monthlyOn: "weekday", until: "2037-03-01", count: 2 }, { every: "week", monthlyOn: "date", count: 2 }, { every: "month", interval: 0 }];
+      r.bad = [];
+      for (const b of bad) { try { await sky.calendar.create({ ...${JSON.stringify(base)}, repeat: b }); r.bad.push("ok"); } catch (e) { r.bad.push(e.name + ":" + e.code); } }
+      return r;`,
+      fx({ data: [] })
+    );
+    const r = out as { weekday: string; yearly: { rule: string; last: string | null }; weekly: string[]; bad: string[] };
+    expect(r.weekday).toBe("every month on the 3rd Tuesday, last on 2037-03-17");
+    expect(r.yearly).toMatchObject({ rule: "every year on 01-20, with no end", last: null });
+    expect(r.weekly).toEqual(["2037-01-20", "2037-01-27"]);
+    expect(r.bad).toEqual(Array(6).fill("SkylightWriteError:invalid_repeat"));
+    expect(writes(calls)).toEqual([]);
+  });
+
+  it("S3. a series create is not confirmed if Skylight stored a one-off", () => {
+    const input = { title: "Rent", start: "2037-01-31T09:00", end: "2037-01-31T09:30", calendar: "skylight", repeat: { every: "month", count: 2 } };
+    const { out } = runImporter(
+      `${make}\n${attempt(`sky.calendar.create(${JSON.stringify(input)})`)}`,
+      fx({ data: [ev("4002", { summary: "Rent", starts_at: "2037-01-31T09:00:00.000-08:00", ends_at: "2037-01-31T09:30:00.000-08:00" }, [])] }, { "POST /calendar_events": { data: { id: "4002" } } })
+    );
+    expect(out).toMatchObject({ ok: false, code: "not_confirmed", eventId: "4002" });
+  }, 30_000);
+
+  it("U1. every event carries a version and whether it was edited on its own; the version moves when notes change", () => {
+    const { out } = runImporter(
+      `${make}\nconst a = await sky.calendar.events({ from: "2037-03-03", to: "2037-03-03" });\nreturn a.map((e) => ({ id: e.id, version: e.version, detached: e.detached }));`,
+      fx(seq(day, [ev("5001", { description: "new notes" }), series, detached, feed, google]))
+    );
+    const o = out as Array<{ id: string; version: string; detached: boolean }>;
+    expect(o.map((e) => e.detached)).toEqual([false, false, true, false, false]);
+    for (const e of o) expect(e.version).toMatch(/^[0-9a-f]{16}$/);
+    expect(new Set(o.map((e) => e.version)).size).toBe(5);
+    const again = runImporter(`${make}\nawait sky.calendar.events({ from: "2037-03-03", to: "2037-03-03" });\nreturn (await sky.calendar.events({ from: "2037-03-03", to: "2037-03-03" }))[0].version;`, fx(seq(day, [ev("5001", { description: "new notes" }), series, detached, feed, google])));
+    expect(again.out).not.toBe(o[0]!.version);
+  });
+
+  it("U2. update of a one-off: preview changes nothing; update sends the title with the current people, no scope, and returns the stored event with a new version", () => {
+    const after = [ev("5001", { summary: "Practice moved" }), series, detached, feed, google];
+    const { out, calls } = runImporter(
+      `${make}\n${withVersions}
+      const input = { id: "5001", date: "2037-03-03", version: v["5001"], changes: { title: "Practice moved" } };
+      const p = await sky.calendar.previewUpdate(input);
+      const writesAfterPreview = globalThis.__calls ? 0 : 0;
+      const u = await sky.calendar.update(input);
+      return { p, u, old: v["5001"] };`,
+      fx(seq(day, day, day, after))
+    );
+    const o = out as { p: Record<string, unknown>; u: Record<string, unknown>; old: string };
+    expect(o.p).toMatchObject({ action: "update", scope: null, changes: { title: "Practice moved" }, google: false, event: { id: "5001", title: "Practice" } });
+    const w = writes(calls);
+    expect(w).toHaveLength(1);
+    expect(w[0]!.method).toBe("PUT");
+    expect(pathOf(w[0]!)).toBe("/api/frames/123/calendar_events/5001");
+    expect(JSON.parse(w[0]!.body!)).toEqual({ summary: "Practice moved", category_ids: ["11"] });
+    expect(o.u).toMatchObject({ id: "5001", title: "Practice moved" });
+    expect(o.u.version).not.toBe(o.old);
+  }, 30_000);
+
+  it("U3. every refusal comes before any write: stale, not found, read-only, scope rules, series limits", () => {
+    const cases: Array<[string, string]> = [
+      [`{ id: "5001", date: "2037-03-03", version: "0000000000000000", changes: { title: "x" } }`, "stale"],
+      [`{ id: "5999", date: "2037-03-03", version: "x", changes: { title: "x" } }`, "not_found"],
+      [`{ id: "8001", date: "2037-03-03", version: v["8001"], changes: { title: "x" } }`, "not_editable"],
+      [`{ id: "6001-2119392000", date: "2037-03-03", version: v["6001-2119392000"], changes: { title: "x" } }`, "scope_required"],
+      [`{ id: "6001-2119392000", date: "2037-03-03", version: v["6001-2119392000"], scope: "future", changes: { title: "x" } }`, "scope_not_allowed"],
+      [`{ id: "5001", date: "2037-03-03", version: v["5001"], scope: "one", changes: { title: "x" } }`, "scope_not_allowed"],
+      [`{ id: "6001-2119392000", date: "2037-03-03", version: v["6001-2119392000"], scope: "all", changes: { notes: "x" } }`, "unsupported"],
+      [`{ id: "6001-2119392000", date: "2037-03-03", version: v["6001-2119392000"], scope: "all", changes: { start: "2037-03-04T16:00", end: "2037-03-04T17:00" } }`, "unsupported"],
+      [`{ id: "6001-2119392000", date: "2037-03-03", version: v["6001-2119392000"], scope: "all", changes: { start: "2037-03-03T18:00" } }`, "invalid_time"],
+      [`{ id: "5001", date: "2037-03-03", version: v["5001"], changes: { end: "2037-03-03T15:00" } }`, "end_before_start"],
+      [`{ id: "5001", date: "2037-03-03", version: v["5001"], changes: {} }`, "bad_input"],
+      [`{ id: "5001", date: "2037-03-03", version: v["5001"], changes: { colour: "red" } }`, "bad_input"],
+      [`{ id: "5001", date: "2037-03-03", version: v["5001"], changes: { profileIds: ["91"] } }`, "unknown_profile"],
+      [`{ id: "9001", date: "2037-03-03", version: v["9001"], changes: { labelIds: ["90", "91"] } }`, "ok-preview"],
+    ];
+    const { out, calls } = runImporter(
+      `${make}\n${withVersions}
+      const res = [];
+      for (const c of [${cases.map((c) => c[0]).join(",")}]) {
+        try { await sky.calendar.previewUpdate(c); res.push("ok-preview"); } catch (e) { res.push(e.code); }
+      }
+      return res;`,
+      fx({ data: day })
+    );
+    expect(out).toEqual(cases.map((c) => c[1]));
+    expect(writes(calls)).toEqual([]);
+  });
+
+  it("U4. scope one on a series: the edit is sent with apply_to one and the result is the split-off occurrence under its new id", () => {
+    const after = [oneOff, ev("7002", { summary: "Swim (late)", starts_at: "2037-03-03T18:00:00.000-08:00", ends_at: "2037-03-03T19:00:00.000-08:00", master_event_id: "series-uid-6001" }), detached, feed, google];
+    const { out, calls } = runImporter(
+      `${make}\n${withVersions}\nreturn await sky.calendar.update({ id: "6001-2119392000", date: "2037-03-03", version: v["6001-2119392000"], scope: "one", changes: { title: "Swim (late)", start: "2037-03-03T18:00", end: "2037-03-03T19:00" } });`,
+      fx(seq(day, day, after))
+    );
+    const w = writes(calls);
+    expect(w).toHaveLength(1);
+    expect(JSON.parse(w[0]!.body!)).toEqual({ summary: "Swim (late)", starts_at: "2037-03-03T18:00:00.000-08:00", ends_at: "2037-03-03T19:00:00.000-08:00", timezone: "America/Los_Angeles", category_ids: ["11"], apply_to: "one" });
+    expect(out).toMatchObject({ id: "7002", title: "Swim (late)", detached: true });
+  }, 30_000);
+
+  it("U5. scope all with a time change: the occurrence id changes and the new one is returned", () => {
+    const moved = ev("6001-2119399200", { summary: "Swim", starts_at: "2037-03-03T18:00:00.000-08:00", ends_at: "2037-03-03T19:00:00.000-08:00", recurring: true, recurring_config: true, rrule: series.attributes.rrule, uid: "series-uid-6001" });
+    const { out, calls } = runImporter(
+      `${make}\n${withVersions}\nreturn await sky.calendar.update({ id: "6001-2119392000", date: "2037-03-03", version: v["6001-2119392000"], scope: "all", changes: { start: "2037-03-03T18:00", end: "2037-03-03T19:00" } });`,
+      fx(seq(day, day, [oneOff, moved, detached, feed, google]))
+    );
+    expect(JSON.parse(writes(calls)[0]!.body!).apply_to).toBe("all");
+    expect(out).toMatchObject({ id: "6001-2119399200", recurring: true, seriesId: "6001" });
+  }, 30_000);
+
+  it("U6. changing people on a Google event keeps the label Skylight put there; adding a synced calendar's label is refused", () => {
+    const after = [oneOff, series, detached, feed, ev("9001", { summary: "Dentist", source: "google" }, ["12", "90"])];
+    const { out, calls } = runImporter(
+      `${make}\n${withVersions}
+      const bad = await (async () => { try { await sky.calendar.update({ id: "5001", date: "2037-03-03", version: v["5001"], changes: { labelIds: ["90"] } }); return "ok"; } catch (e) { return e.code; } })();
+      const u = await sky.calendar.update({ id: "9001", date: "2037-03-03", version: v["9001"], changes: { profileIds: ["12"] } });
+      return { bad, u };`,
+      fx(seq(day, day, day, after))
+    );
+    expect((out as { bad: string }).bad).toBe("label_not_assignable");
+    const w = writes(calls);
+    expect(w).toHaveLength(1);
+    expect(JSON.parse(w[0]!.body!).category_ids).toEqual(["12", "90"]);
+    expect((out as { u: unknown }).u).toMatchObject({ profileIds: ["12"], labelIds: ["90"] });
+  }, 30_000);
+
+  it("D1. delete: a one-off and a split-off occurrence go with no scope, a series needs one and sends it as apply_to", () => {
+    const gone = (id: string) => day.filter((e) => e.id !== id);
+    const one = runImporter(`${make}\n${withVersions}\nconst p = await sky.calendar.previewDelete({ id: "5001", date: "2037-03-03", version: v["5001"] });\nconst d = await sky.calendar.delete({ id: "5001", date: "2037-03-03", version: v["5001"] });\nreturn { p, d };`, fx(seq(day, day, day, gone("5001"))));
+    expect(one.out).toMatchObject({ p: { action: "delete", scope: null, event: { id: "5001" } }, d: { deleted: true, id: "5001", scope: null } });
+    expect(writes(one.calls).map((c) => [c.method, pathOf(c), queryOf(c)])).toEqual([["DELETE", "/api/frames/123/calendar_events/5001", {}]]);
+
+    const det = runImporter(`${make}\n${withVersions}\nreturn await sky.calendar.delete({ id: "7001", date: "2037-03-03", version: v["7001"] });`, fx(seq(day, day, gone("7001"))));
+    expect(det.out).toMatchObject({ deleted: true, id: "7001", scope: null });
+    expect(writes(det.calls).map((c) => [c.method, pathOf(c), queryOf(c)])).toEqual([["DELETE", "/api/frames/123/calendar_events/7001", {}]]);
+
+    const ser = runImporter(
+      `${make}\n${withVersions}
+      const res = [];
+      for (const scope of [undefined, "future"]) { try { res.push(await sky.calendar.delete({ id: "6001-2119392000", date: "2037-03-03", version: v["6001-2119392000"], ...(scope ? { scope } : {}) })); } catch (e) { res.push(e.code); } }
+      try { await sky.calendar.delete({ id: "7001", date: "2037-03-03", version: v["7001"], scope: "one" }); } catch (e) { res.push(e.code); }
+      return res;`,
+      fx(seq(day, day, day, gone("6001-2119392000")))
+    );
+    expect((ser.out as unknown[])[0]).toBe("scope_required");
+    expect((ser.out as unknown[])[1]).toMatchObject({ deleted: true, scope: "future" });
+    expect((ser.out as unknown[])[2]).toBe("scope_not_allowed");
+    expect(writes(ser.calls).map((c) => queryOf(c))).toEqual([{ apply_to: "future" }]);
+  }, 30_000);
+
+  it("D2. a stale delete is refused without writing; a delete that still shows is not_confirmed", () => {
+    const stale = runImporter(`${make}\n${attempt(`sky.calendar.delete({ id: "5001", date: "2037-03-03", version: "0123456789abcdef" })`)}`, fx({ data: day }));
+    expect(stale.out).toMatchObject({ ok: false, code: "stale" });
+    expect(writes(stale.calls)).toEqual([]);
+    const stuck = runImporter(`${make}\n${withVersions}\n${attempt(`sky.calendar.delete({ id: "5001", date: "2037-03-03", version: v["5001"] })`)}`, fx({ data: day }));
+    expect(stuck.out).toMatchObject({ ok: false, code: "not_confirmed", eventId: "5001" });
+  }, 30_000);
 });
 
 describe("importer gaps reported by Mantel (2026-11-10)", () => {

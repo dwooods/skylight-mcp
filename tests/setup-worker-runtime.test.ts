@@ -14,6 +14,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 type Call = { url: string; method: string; auth: string | null; body: string };
 const calls: Call[] = [];
+const removed = new Set<string>();
+let renamed: string | null = null;
 let mf: Miniflare;
 let result: Record<string, unknown>;
 
@@ -47,11 +49,19 @@ beforeAll(async () => {
         return Response.json({ data: [{ id: "11", type: "category", attributes: { label: "Alex", color: "#2178AF", linked_to_profile: true } }] });
       }
       if (url.pathname.endsWith("/calendar_events") && request.method === "POST") return Response.json({ data: { id: "77", type: "calendar_event", attributes: {} } });
+      if (/\/calendar_events\/\d+$/.test(url.pathname) && request.method === "DELETE") {
+        removed.add(url.pathname.split("/").pop()!);
+        return Response.json({ meta: { destroyed_id: url.pathname.split("/").pop() } });
+      }
+      if (/\/calendar_events\/\d+$/.test(url.pathname) && request.method === "PUT") {
+        renamed = (JSON.parse(calls[calls.length - 1]!.body) as { summary?: string }).summary ?? null;
+        return Response.json({ data: { id: "77" } });
+      }
       if (url.pathname.endsWith("/calendar_events")) {
         return Response.json({
-          data: [{
+          data: removed.has("77") ? [] : [{
             id: "77", type: "calendar_event",
-            attributes: { summary: "Wall entry", starts_at: "2037-03-03T16:00:00.000-08:00", ends_at: "2037-03-03T17:00:00.000-08:00", all_day: false, location: "", description: "", source: "skylight", editable: true },
+            attributes: { summary: renamed ?? "Wall entry", starts_at: "2037-03-03T16:00:00.000-08:00", ends_at: "2037-03-03T17:00:00.000-08:00", all_day: false, location: "", description: "", source: "skylight", editable: true },
             relationships: { categories: { data: [{ id: "11", type: "category" }] } },
           }],
         });
@@ -117,5 +127,19 @@ describe("event create inside the Workers runtime (workerd, nodejs_compat)", () 
     expect(posts[0]!.auth).toBe("Bearer AT-worker-1");
     expect(JSON.parse(posts[0]!.body)).toMatchObject({ summary: "Wall entry", starts_at: "2037-03-03T16:00:00.000-08:00", category_ids: ["11"] });
     expect(result.refused).toMatchObject({ name: "SkylightWriteError", code: "end_before_start" });
+  });
+});
+
+describe("event update and delete inside the Workers runtime (workerd, nodejs_compat)", () => {
+  it("updates with the version from a read, then deletes, each once, to the pinned host", () => {
+    expect(result.renamed).toMatchObject({ id: "77", title: "Wall entry (moved)" });
+    expect(result.deleted).toEqual({ deleted: true, id: "77", scope: null });
+    expect(result.staleCode).toBe("stale");
+    const writes = calls.filter((c) => c.method === "PUT" || c.method === "DELETE");
+    expect(writes.map((c) => [c.method, new URL(c.url).pathname])).toEqual([
+      ["PUT", "/api/frames/123/calendar_events/77"],
+      ["DELETE", "/api/frames/123/calendar_events/77"],
+    ]);
+    for (const c of writes) expect(new URL(c.url).origin).toBe("https://app.ourskylight.com");
   });
 });

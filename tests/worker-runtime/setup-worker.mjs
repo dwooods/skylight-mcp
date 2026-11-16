@@ -30,6 +30,12 @@ export default {
     const preview = await attempt(() => sky.calendar.previewCreate(entry));
     const created = await attempt(() => sky.calendar.create(entry));
     const refused = await attempt(() => sky.calendar.create({ ...entry, end: "2037-03-03T15:00" }));
+    const read = await sky.calendar.events({ from: "2037-03-03", to: "2037-03-03" });
+    const v0 = read[0].version;
+    const renamed = await attempt(() => sky.calendar.update({ id: "77", date: "2037-03-03", version: v0, changes: { title: "Wall entry (moved)" } }));
+    const stale = await attempt(() => sky.calendar.delete({ id: "77", date: "2037-03-03", version: v0 }));
+    const v1 = (await sky.calendar.events({ from: "2037-03-03", to: "2037-03-03" }))[0].version;
+    const deleted = await attempt(() => sky.calendar.delete({ id: "77", date: "2037-03-03", version: v1 }));
 
     // A second attempt with the wrong state, in the same runtime.
     const again = await beginLogin({ pending });
@@ -47,6 +53,7 @@ export default {
       storedOk: stored?.accessToken === "AT-worker-1" && stored?.refreshToken === "RT-worker-1" && typeof stored?.fingerprint === "string",
       sources: sources.ok ?? sources,
       preview: preview.ok ?? preview, created: created.ok ?? created, refused,
+      renamed: renamed.ok ?? renamed, deleted: deleted.ok ?? deleted, staleCode: stale.code,
       returned: JSON.stringify([started, done, status]),
       verifier: record.codeVerifier,
     });
