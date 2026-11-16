@@ -86,19 +86,13 @@ Some features require a Skylight Plus subscription. The server detects subscript
 
 ## Versioning & Releases
 
+Releases are manual. There is no tag-triggered workflow: `.github/workflows` holds only CI and the secret scan.
+
 **Release Process**:
-1. Update version in `package.json`
-2. Update `CHANGELOG.md` with changes
-3. Commit changes and merge to main
-4. Create and push a tag with `v` prefix: `git tag v1.2.3 && git push origin v1.2.3`
-
-**Important**: Tags must start with `v` (e.g., `v1.1.7`) to trigger the release workflow. Tags without the `v` prefix (e.g., `1.1.7`) will not trigger a release.
-
-The release workflow (`.github/workflows/release.yml`) will:
-- Run linting, type checking, and tests
-- Build the package
-- Publish to npm with provenance
-- Create a GitHub release with auto-generated changelog
+1. Bump the version in four places: `package.json`, `package-lock.json` (lines 3 and 9), and the `VERSION` constant in `src/worker/index.ts`. Move the CHANGELOG's Unreleased entries under a `## [X.Y.Z] - date` heading.
+2. Merge the release PR first (CI runs lint, type checks and tests on it).
+3. The maintainer then runs `npm publish` from the clone on main (2FA is interactive) and, when tools or tool text changed, `npm run worker:deploy:local` for the hosted Worker.
+4. Verify: `doctor` from the published package (from outside the clone, no `SKYLIGHT_` variables set) and the Worker's `/version`.
 
 ## API Quirks
 

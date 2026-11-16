@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.25.1] - 2026-11-16
+
+### Changed
+- `create_calendar_event`: the `calendar` description no longer says to use it only when asked. Where new events go is the person's standing rule (Skylight's apps preselect the household's default calendar, often a linked Google calendar), so the tool text says to follow it. Behaviour is unchanged: with `calendar` omitted the event still goes to Skylight's own calendar.
+- The tool text and README now record the monthly series on a Google calendar verified live on 2026-11-16.
+- CLAUDE.md describes the real, manual release process (it described a tag-triggered workflow that does not exist).
+
 ## [1.25.0] - 2026-11-16
 
 ### Added
