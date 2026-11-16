@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `create_calendar_event`: `repeat.frequency` gains `monthly` (`monthlyOn` `date` or `weekday`, interval 1-12) and `yearly` (interval 1-10), both allowed with no end; rule shapes from the web-app capture of 2026-11-16 (the library's planner). The preview lists the first dates and a WARNING naming months or years the rule skips (29th to 31st, a 5th weekday, Feb 29). Daily and weekly are unchanged.
+
+### Changed
+- `delete_calendar_event` now deletes an occurrence that was edited on its own (a plain delete of its own id, no scope; the rest of the series stays), as the Skylight app does: captured and checked in Skylight and Google on 2026-11-16. A scope on such an occurrence is refused. Previously refused as unverified.
+
 ## [1.24.0] - 2026-11-16
 
 ### Added

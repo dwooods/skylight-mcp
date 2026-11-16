@@ -15,7 +15,46 @@ import { formatErrorForMcp } from "../utils/errors.js";
 import { formatAttribute, redactFeedUrl } from "../utils/redact.js";
 import { checkCalendarName, readBackUntil, removeSourceCalendar, renameSourceCalendar, setSourceCalendarCategories } from "../api/endpoints/source-calendars.js";
 import { getConfig } from "../config.js";
-import { RepeatError, planRepeat } from "../utils/recurrence.js";
+import { RepeatError, planRepeat, type DayCode } from "../utils/recurrence.js";
+import { planSeries, SeriesError } from "../utils/series.js";
+
+/**
+ * Plan any repeat the tool accepts. Daily and weekly keep their verified planner; monthly and yearly
+ * use the library's planner (rule shapes captured from the Skylight app on 2026-11-16), which also
+ * reports months or years the rule skips.
+ */
+function planAny(
+  repeat: { frequency: "daily" | "weekly" | "monthly" | "yearly"; interval?: number; byDay?: DayCode; monthlyOn?: "date" | "weekday"; until?: string; count?: number },
+  startDate: string,
+  startTime: string,
+  endsBeforeStart: boolean,
+  timeZone: string,
+  allDay: boolean
+): { rrule: string; dates: string[]; ruleText: string; warnings: string[]; more: boolean } {
+  if (repeat.frequency === "daily" || repeat.frequency === "weekly") {
+    if (repeat.monthlyOn !== undefined) throw new RepeatError("repeat.monthlyOn applies to monthly series only.");
+    const { monthlyOn: _unused, ...rest } = repeat;
+    void _unused;
+    const p = planRepeat(rest as Parameters<typeof planRepeat>[0], startDate, startTime, endsBeforeStart, timeZone, Date.now(), allDay);
+    return { rrule: p.rrule, dates: p.occurrences.map((o) => o.date), ruleText: `${repeat.frequency} (every ${repeat.interval ?? 1})`, warnings: [], more: false };
+  }
+  if (repeat.byDay !== undefined) throw new RepeatError("repeat.byDay applies to weekly series only.");
+  if (endsBeforeStart) throw new RepeatError("endsAt is before startsAt.");
+  const today = new Date().toLocaleDateString("en-CA", { timeZone });
+  if (startDate < today) throw new RepeatError("startsAt is in the past.");
+  try {
+    const p = planSeries(
+      { every: repeat.frequency === "monthly" ? "month" : "year", interval: repeat.interval, monthlyOn: repeat.monthlyOn, until: repeat.until, count: repeat.count },
+      startDate,
+      startTime,
+      timeZone
+    );
+    return { rrule: p.rrule, dates: p.first, ruleText: p.rule, warnings: p.warnings, more: p.last === null || p.first[p.first.length - 1] !== p.last };
+  } catch (error) {
+    if (error instanceof SeriesError) throw new RepeatError(error.message);
+    throw error;
+  }
+}
 import { addDays } from "../utils/schedule.js";
 import { getCategories, resolveProfileIds } from "../api/endpoints/categories.js";
 import type { CalendarEventResource } from "../api/types.js";
@@ -530,7 +569,11 @@ Parameters:
 - description: Additional notes for the event
 - location: Where the event takes place
 - profiles: Profile names to assign (e.g. ["Alex"]); categoryIds is the ID fallback
-- repeat: makes a repeating series. { frequency: "daily" | "weekly", interval (weekly 1-4, daily 1-7), byDay (weekly; must be the weekday of startsAt), and exactly one of until (YYYY-MM-DD, inclusive) or count }. Max 104 occurrences and 2 years; no open-ended series; no monthly or yearly yet.
+- repeat: makes a repeating series. { frequency: "daily" | "weekly" | "monthly" | "yearly", interval, until (YYYY-MM-DD, inclusive) or count }.
+  - daily / weekly: interval (weekly 1-4, daily 1-7), byDay (weekly; must be the weekday of startsAt), and exactly one of until or count. Max 104 occurrences and 2 years.
+  - monthly: monthlyOn "date" (the start's day of the month, e.g. the 15th; the default) or "weekday" (the start's weekday in the month, e.g. the 3rd Tuesday), interval 1-12; until or count, or neither for no end (a bill, a payday).
+  - yearly: repeats on the start's date (a birthday, an anniversary), interval 1-10; until or count, or neither for no end.
+  - Skylight SKIPS a month that has no such day (a monthly series on the 29th-31st misses short months; a 5th weekday misses most months) and a year without Feb 29. Nothing is moved. The preview lists what is skipped: tell the person before they confirm.
 - dinner: true makes a free-tier "Dinner plan" instead of an event: Skylight's stand-in for Meals on an account without Plus (an all-day event of kind "meal", tagged "Dinner Plan" by Skylight). Give the dish as summary, startsAt as the date YYYY-MM-DD, and leave out endsAt or set it to the next day; no profiles, calendar or repeat. On a Plus account plan dinners with the meal tools instead. Not yet verified through this tool.
 - calendar: name of a linked Google calendar (see get_source_calendars, kind gmail). Only when the person asks for it. Omit it and the event goes to Skylight's own calendar, which does NOT appear in Google. With it the event (or series) is written to that Google calendar and shows for everyone who shares it, so it needs confirm: true like a series.
 - confirm: required for a series or when calendar is given. Without confirm: true nothing is created; you get a preview (a series lists every date; a calendar names it). Show it to the person, get their yes, then call again with confirm: true.
@@ -551,9 +594,10 @@ Related: get_family_members lists the profile names and IDs.`,
       categoryIds: z.array(z.string()).optional().describe("Profile IDs to assign. Prefer profiles."),
       repeat: z
         .object({
-          frequency: z.enum(["daily", "weekly"]),
+          frequency: z.enum(["daily", "weekly", "monthly", "yearly"]),
           interval: z.number().int().optional(),
           byDay: z.enum(["SU", "MO", "TU", "WE", "TH", "FR", "SA"]).optional(),
+          monthlyOn: z.enum(["date", "weekday"]).optional().describe("Monthly only: the start's day of the month (date) or its weekday, e.g. the 3rd Tuesday (weekday)"),
           until: z.string().optional().describe("Last date, YYYY-MM-DD, inclusive"),
           count: z.number().int().optional().describe("Number of occurrences"),
         })
@@ -592,7 +636,7 @@ Related: get_family_members lists the profile names and IDs.`,
         let rrule: string[] | undefined;
         if (repeat) {
           if ((resolved?.length ?? 0) > 1) throw new RepeatError("A repeating series with more than one profile is not supported yet; give one profile or none.");
-          let plan;
+          let plan: { rrule: string; dates: string[]; ruleText: string; warnings: string[]; more: boolean };
           if (allDay) {
             const sd = startsAt.trim();
             const ed = endsAt.trim();
@@ -602,7 +646,7 @@ Related: get_family_members lists the profile names and IDs.`,
             if (ed !== addDays(sd, 1)) {
               throw new RepeatError(`An all-day series is one day per occurrence: endsAt must be the day after startsAt (${addDays(sd, 1)}). Multi-day occurrences are not supported yet.`);
             }
-            plan = planRepeat(repeat, sd, "00:00", false, config.timezone, Date.now(), true);
+            plan = planAny(repeat, sd, "00:00", false, config.timezone, true);
           } else {
             const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2})?$/.exec(startsAt.trim());
             if (!m) throw new RepeatError("For a repeating event give startsAt as local time YYYY-MM-DDTHH:MM with no offset or Z.");
@@ -611,18 +655,19 @@ Related: get_family_members lists the profile names and IDs.`,
             if (Number.isNaN(endMs) || !/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?$/.test(endsAt.trim())) {
               throw new RepeatError("For a repeating event give endsAt as local time YYYY-MM-DDTHH:MM with no offset or Z.");
             }
-            plan = planRepeat(repeat, m[1]!, m[2]!, endMs <= startMs, config.timezone, Date.now());
+            plan = planAny(repeat, m[1]!, m[2]!, endMs <= startMs, config.timezone, false);
           }
           rrule = [plan.rrule];
           if (confirm !== true) {
-            const dates = plan.occurrences.map((o) => o.date);
+            const dates = plan.dates;
             return {
               content: [
                 {
                   type: "text" as const,
                   text: [
-                    `PREVIEW, nothing created. "${summary}" would repeat ${repeat.frequency} (every ${repeat.interval ?? 1}), ${dates.length} occurrence${dates.length === 1 ? "" : "s"}, ${allDay ? "all day" : `${startsAt.trim().slice(11, 16)} to ${endsAt.trim().slice(11, 16)}`} (${config.timezone}).`,
-                    `Dates: ${dates.join(", ")}`,
+                    `PREVIEW, nothing created. "${summary}" would repeat ${plan.ruleText}, ${plan.more ? "first dates shown" : `${dates.length} occurrence${dates.length === 1 ? "" : "s"}`}, ${allDay ? "all day" : `${startsAt.trim().slice(11, 16)} to ${endsAt.trim().slice(11, 16)}`} (${config.timezone}).`,
+                    `Dates: ${dates.join(", ")}${plan.more ? ", ..." : ""}`,
+                    ...plan.warnings.map((w) => `WARNING: ${w}`),
                     profiles?.length ? `Profile: ${profiles.join(", ")}` : "Profile: none",
                     destination,
                     "Conflicts were not checked by this tool; run find_conflicts over these dates first.",
@@ -838,7 +883,9 @@ Parameters:
 Always show the user the preview and wait for a yes to that exact event and scope before calling again with confirm: true. It cannot be undone.
 Events on a Google calendar are deleted at Google too, for everyone who shares that calendar.
 
-Refused, with the reason: events from a subscribed feed (read-only), events that are not editable, an occurrence that was edited on its own (delete it in the Skylight app; not verified), and a repeating event with no scope.`,
+An occurrence that was edited on its own is its own event: delete it without a scope; the rest of the series stays (verified live 2026-11-16, Skylight and Google).
+
+Refused, with the reason: events from a subscribed feed (read-only), events that are not editable, a repeating event with no scope, and a scope on a one-off event or on an occurrence edited on its own.`,
     {
       eventId: z.string().describe("ID of the event to delete"),
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("The event's date, YYYY-MM-DD"),
@@ -855,10 +902,11 @@ Refused, with the reason: events from a subscribed feed (read-only), events that
         const a = event.attributes as Record<string, unknown>;
         const title = String(a.summary ?? "(untitled)");
         assertWritableSource(a, title, "deleted");
-        if (a.master_event_id) {
-          throw new Error(`"${title}" is an occurrence that was edited on its own, and what a delete does to it is not verified. Nothing was deleted. Delete it in the Skylight app.`);
+        const detached = Boolean(a.master_event_id);
+        if (detached && scope) {
+          throw new Error(`"${title}" is an occurrence that was edited on its own: it is its own event now, so it is deleted without a scope (the rest of the series stays). Nothing was deleted. Call again without scope.`);
         }
-        const series = a.recurring === true || a.recurring_config === true;
+        const series = !detached && (a.recurring === true || a.recurring_config === true);
         if (series && !scope) {
           throw new Error(`"${title}" is a repeating event, so say how much to delete: scope "one" (only ${date}), "future" (${date} and every later one) or "all" (the whole series). Nothing was deleted.`);
         }
@@ -873,7 +921,7 @@ Refused, with the reason: events from a subscribed feed (read-only), events that
           /* names are a best-effort extra */
         }
         const shown = formatEventForTool(event, labelById);
-        const effect = scope ? SCOPE_EFFECT[scope](date) : "this one event";
+        const effect = scope ? SCOPE_EFFECT[scope](date) : detached ? "this one occurrence, which was edited on its own (the rest of the series stays)" : "this one event";
         const shared = a.source === "google" ? "\nIt is synced from a Google calendar, so this also removes it there, for everyone who shares that calendar." : "";
 
         if (!confirm) {

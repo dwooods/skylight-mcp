@@ -95,7 +95,10 @@ describe("create_calendar_event with repeat", () => {
     ["offset in startsAt", { startsAt: "2037-03-03T16:00:00-08:00" }],
     ["date-only start", { startsAt: "2037-03-03", endsAt: "2037-03-03" }],
     ["end before start", { endsAt: "2037-03-03T15:00" }],
-    ["monthly", { repeat: { frequency: "monthly", count: 3 } }],
+    ["byDay on a monthly series", { repeat: { frequency: "monthly", count: 3, byDay: "TU" } }],
+    ["monthlyOn on a weekly series", { repeat: { frequency: "weekly", count: 3, monthlyOn: "date" } }],
+    ["monthly with a past start", { startsAt: "2020-03-03T16:00", endsAt: "2020-03-03T17:00", repeat: { frequency: "monthly", count: 3 } }],
+    ["yearly interval 0", { repeat: { frequency: "yearly", interval: 0 } }],
     ["no end", { repeat: { frequency: "weekly" } }],
     ["unknown repeat key", { repeat: { frequency: "weekly", count: 3, rrule: "x" } }],
     ["past start", { startsAt: "2020-03-03T16:00", endsAt: "2020-03-03T17:00" }],
@@ -104,6 +107,45 @@ describe("create_calendar_event with repeat", () => {
     const out = await call({ ...base, confirm: true, ...over });
     expect(out.isError).toBe(true);
     expect(s.posts).toEqual([]);
+  });
+
+  describe("monthly and yearly (captured 2026-11-16)", () => {
+    const m31 = { summary: "Rent", startsAt: "2037-01-31T09:00", endsAt: "2037-01-31T09:30", repeat: { frequency: "monthly", until: "2037-06-30" } };
+
+    it("previews a monthly series on the 31st with a WARNING naming the skipped months, and sends nothing", async () => {
+      const s = stub();
+      const out = await call(m31);
+      expect(out.isError).toBe(false);
+      expect(out.text).toContain("every month on the 31st");
+      expect(out.text).toContain("2037-01-31, 2037-03-31, 2037-05-31");
+      expect(out.text).toContain("WARNING: Months without a 31st are skipped, not moved: 2037-02, 2037-04, 2037-06.");
+      expect(s.posts).toEqual([]);
+    });
+
+    it("with confirm: one POST with the captured monthly rule", async () => {
+      const s = stub();
+      const out = await call({ ...m31, confirm: true });
+      expect(out.isError).toBe(false);
+      expect(s.posts).toHaveLength(1);
+      expect(s.posts[0]!.body.rrule).toEqual(["RRULE:FREQ=MONTHLY;INTERVAL=1;UNTIL=20370531T235959Z;BYMONTHDAY=31"]);
+    });
+
+    it("monthly on the nth weekday sends BYSETPOS and BYDAY", async () => {
+      const s = stub();
+      await call({ summary: "Club", startsAt: "2037-01-20T19:00", endsAt: "2037-01-20T20:00", repeat: { frequency: "monthly", monthlyOn: "weekday", count: 3 }, confirm: true });
+      expect(s.posts[0]!.body.rrule).toEqual(["RRULE:FREQ=MONTHLY;INTERVAL=1;UNTIL=20370318T235959Z;BYSETPOS=3;BYDAY=TU"]);
+    });
+
+    it("yearly all-day with no end: open-ended rule, preview says first dates", async () => {
+      const s = stub();
+      const yearly = { summary: "Birthday", startsAt: "2037-01-20", endsAt: "2037-01-21", allDay: true, repeat: { frequency: "yearly" } };
+      const preview = await call(yearly);
+      expect(preview.text).toContain("every year on 01-20, with no end");
+      expect(preview.text).toContain("first dates shown");
+      await call({ ...yearly, confirm: true });
+      expect(s.posts).toHaveLength(1);
+      expect(s.posts[0]!.body).toMatchObject({ rrule: ["RRULE:FREQ=YEARLY;INTERVAL=1"], all_day: true });
+    });
   });
 
   it("confirm on a one-off event is refused", async () => {
