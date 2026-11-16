@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-11-16
+
+### Added
+- Library: stage 2 of event writes. `calendar.create` takes `repeat` (daily, weekly, monthly by date or by weekday, yearly; interval; until or count, open-ended for monthly and yearly), with the rule shapes captured from the Skylight app on 2026-11-16; the preview lists the first dates, the months or years the rule skips (the 31st, a 5th weekday, Feb 29) and a warning to show. `calendar.previewUpdate`/`update` and `calendar.previewDelete`/`delete` take `{ id, date, version }` from a read: `EventDto` gains `version` (a fingerprint; a changed event is refused as `stale`) and `detached` (an occurrence edited on its own). A repeating event needs an explicit scope (update `one`/`all`, delete `one`/`future`/`all`); a split-off occurrence is deleted on its own with no scope, as the app does. Update returns the event under its id after the change. Series edits are limited to title, people, labels and time of day, as the MCP tool. Tested against fakes (packed package and workerd), and live on 2026-11-16 (Mac, branch build) on Skylight's calendar: a monthly series on the 31st (preview warned of Feb, Apr, Jun), a scope-one edit that came back under the split-off id, deleting that split-off occurrence with no scope, a whole-series time change (new occurrence ids returned), deletes with scope future and all, a yearly all-day series with no end (2028 occurrence present), and a one-off update of time, location and notes followed by a delete refused as stale with the old version; and on a linked Google calendar: a weekly series with a scope-one title edit and a monthly 3rd-Tuesday series, both seen in Google with the right dates, then the split-off occurrence and both series deleted and checked gone in Skylight and Google. Not verified live: interval above 1, count on monthly by date, Feb 29, a series time edit with scope one on a Google calendar, label changes.
+
 ## [1.23.0] - 2026-11-16
 
 ### Added

@@ -12,9 +12,9 @@
  * - No function takes a URL or a feed address (so the feed-address helper is not exported either).
  * - Importing this module starts nothing and reads nothing from process.argv.
  *
- * Reads, plus event creation (experimental, stage 1 of event writes): `calendar.previewCreate`
- * and `calendar.create` take identical arguments and share one check (src/lib-writes.ts).
- * Updates, deletes, messages, source-calendar management and login are deliberately not exported.
+ * Reads, plus calendar event writes (experimental): create, update and delete, each as a preview
+ * and a commit with identical arguments that share one check (src/lib-writes.ts). Other writes,
+ * messages, source-calendar management and login are deliberately not exported.
  *
  * Honest limit: an importer holds a live bearer token and can do whatever the token
  * allows. These guards stop accidents and token leakage, not a malicious importer.
@@ -33,9 +33,35 @@ import { isChoreDone, parseOccurrenceId } from "./api/endpoints/chores.js";
 import { addDays } from "./utils/schedule.js";
 import { redactFeedUrl } from "./utils/redact.js";
 import type { CalendarEventResource, CategoryResource, ChoreResource, SourceCalendarResource } from "./api/types.js";
-import { commitCreate, planCreate, sourceWritable, type CreateEventInput, type CreatePreview } from "./lib-writes.js";
+import {
+  commitCreate,
+  commitDelete,
+  commitUpdate,
+  eventVersion,
+  planCreate,
+  planDelete,
+  planUpdate,
+  sourceWritable,
+  type CreateEventInput,
+  type CreatePreview,
+  type DeleteEventInput,
+  type DeletePreview,
+  type UpdateEventInput,
+  type UpdatePreview,
+} from "./lib-writes.js";
 
-export type { CreateEventInput, CreatePreview, SkylightWriteError, WriteErrorCode } from "./lib-writes.js";
+export type {
+  CreateEventInput,
+  CreatePreview,
+  DeleteEventInput,
+  DeletePreview,
+  EventRef,
+  SkylightWriteError,
+  UpdateEventInput,
+  UpdatePreview,
+  WriteErrorCode,
+} from "./lib-writes.js";
+export type { SeriesInput } from "./utils/series.js";
 
 export type { CredentialStore };
 
@@ -73,8 +99,12 @@ export interface EventDto {
   labelIds: string[];
   recurring: boolean;
   seriesId: string | null;
+  /** True for an occurrence that was edited on its own: it is its own event now, deleted without a scope. */
+  detached: boolean;
   editable: boolean;
   source: "skylight" | "google" | "feed" | "other";
+  /** Fingerprint of the fields shown here (and notes and the rule). Pass it back with `id` and the date to update or delete; a changed event is refused as "stale". */
+  version: string;
 }
 
 export interface SourceDto {
@@ -168,6 +198,14 @@ export interface Skylight {
      * `name` "SkylightWriteError" and a `code` otherwise (see CreateEventInput and README).
      */
     create(input: CreateEventInput): Promise<EventDto>;
+    /** Check a change to one event and return exactly what `update` would write. Changes nothing. */
+    previewUpdate(input: UpdateEventInput): Promise<UpdatePreview<EventDto>>;
+    /** Re-run the same check (including the version), write, read back. Resolves with the event under its id after the change. */
+    update(input: UpdateEventInput): Promise<EventDto>;
+    /** Check a delete and show the event and what it reaches. Changes nothing. */
+    previewDelete(input: DeleteEventInput): Promise<DeletePreview<EventDto>>;
+    /** Re-run the same check (including the version), delete, read back until it is gone. */
+    delete(input: DeleteEventInput): Promise<{ deleted: true; id: string; scope: "one" | "future" | "all" | null }>;
   };
   profiles: { list(): Promise<ProfileDto[]> };
   /** Every label (category not linked to a profile), in Skylight's order, including labels no event uses. */
@@ -297,8 +335,10 @@ function toEvent(event: CalendarEventResource, categories: Map<string, CategoryR
     labelIds,
     recurring: a.recurring === true || a.recurring_config === true,
     seriesId: composite ? composite[1]! : null,
+    detached: a.master_event_id != null && a.master_event_id !== "",
     editable: a.editable !== false,
     source,
+    version: eventVersion(event, categoryIds),
   };
 }
 
@@ -368,6 +408,33 @@ export function createSkylight(options: CreateSkylightOptions): Skylight {
           const byId = new Map((await getCategories()).map((c) => [String(c.id), c]));
           return toEvent(stored, byId);
         }),
+      previewUpdate: (input) =>
+        run(async () => {
+          const plan = await planUpdate(input, config.timezone, categoryIds);
+          const byId = new Map((await getCategories()).map((c) => [String(c.id), c]));
+          return {
+            action: "update" as const,
+            event: toEvent(plan.found.event, byId),
+            scope: plan.scope,
+            changes: plan.changes,
+            effect: plan.effect,
+            google: plan.found.google,
+            warnings: plan.found.google ? ["This event is on a Google calendar: the change reaches everyone who shares it."] : [],
+          };
+        }),
+      update: (input) =>
+        run(async () => {
+          const stored = await commitUpdate(input, config.timezone, categoryIds);
+          const byId = new Map((await getCategories()).map((c) => [String(c.id), c]));
+          return toEvent(stored, byId);
+        }),
+      previewDelete: (input) =>
+        run(async () => {
+          const plan = await planDelete(input, config.timezone, categoryIds);
+          const byId = new Map((await getCategories()).map((c) => [String(c.id), c]));
+          return { action: "delete" as const, event: toEvent(plan.found.event, byId), scope: plan.scope, effect: plan.effect, google: plan.found.google };
+        }),
+      delete: (input) => run(() => commitDelete(input, config.timezone, categoryIds)),
     },
     profiles: {
       list: () =>
