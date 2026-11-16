@@ -15,6 +15,7 @@ import { formatErrorForMcp } from "../utils/errors.js";
 import { formatAttribute, redactFeedUrl } from "../utils/redact.js";
 import { checkCalendarName, readBackUntil, removeSourceCalendar, renameSourceCalendar, setSourceCalendarCategories } from "../api/endpoints/source-calendars.js";
 import { getConfig } from "../config.js";
+import { getClient } from "../api/client.js";
 import { RepeatError, planRepeat, type DayCode } from "../utils/recurrence.js";
 import { planSeries, SeriesError } from "../utils/series.js";
 
@@ -128,14 +129,17 @@ const GOOGLE_LOOKAROUND_DAYS = 90;
 
 /**
  * Resolve a linked Google calendar by its name (label) for a write. Skylight's create call
- * needs the Google calendar address (source_id) and a calendar account id; the account id is
- * not on the source-calendar record, so it is read from an existing event on that calendar
- * near the new event's date. Refuses rather than guesses. Ids stay inside the call: only the
- * label is ever shown.
+ * needs the Google calendar address (source_id) and a calendar account id. The account is a
+ * relationship on the source-calendar record when asked for with include=calendar_account
+ * (found 2026-11-15; equal to the account on that calendar's events for every Google calendar
+ * checked live). If it is missing, fall back to an existing event on that calendar near the new
+ * event's date. Refuses rather than guesses. Ids stay inside the call: only the label is ever
+ * shown, and the included account records (which hold an email) are never read.
  */
 async function resolveGoogleTarget(name: string, startsAt: string, tz: string): Promise<{ label: string; calendarId: string; accountId: string | number }> {
   const want = name.trim().toLowerCase();
-  const gmail = (await getSourceCalendars()).filter((c) => c.attributes.kind === "gmail");
+  const sources = await getClient().get<{ data: Awaited<ReturnType<typeof getSourceCalendars>> }>("/api/frames/{frameId}/source_calendars", { include: "calendar_account" });
+  const gmail = (sources.data ?? []).filter((c) => c.attributes.kind === "gmail");
   const labelOf = (c: (typeof gmail)[number]) => String(c.attributes.label ?? "").trim();
   const known = gmail.map(labelOf).join(", ") || "none";
   const matches = gmail.filter((c) => labelOf(c).toLowerCase() === want);
@@ -147,6 +151,8 @@ async function resolveGoogleTarget(name: string, startsAt: string, tz: string): 
   }
   const calendarId = String(cal.attributes.source_id ?? "");
   if (!calendarId) throw new Error(`"${labelOf(cal)}" has no calendar address in Skylight. Nothing was created.`);
+  const linked = (cal as { relationships?: { calendar_account?: { data?: { id?: unknown } | null } } }).relationships?.calendar_account?.data?.id;
+  if ((typeof linked === "string" && linked !== "") || typeof linked === "number") return { label: labelOf(cal), calendarId, accountId: linked };
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(startsAt.trim());
   const centre = m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : Date.now();
   const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
