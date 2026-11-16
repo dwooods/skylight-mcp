@@ -126,6 +126,8 @@ function eventCategoryIds(event: CalendarEventResource): string[] {
 
 
 const GOOGLE_LOOKAROUND_DAYS = 90;
+/** `calendar: "skylight"` means Skylight's own calendar on purpose (the library uses the same word). */
+const OWN_CALENDAR = "skylight";
 
 /**
  * Resolve a linked Google calendar by its name (label) for a write. Skylight's create call
@@ -136,15 +138,25 @@ const GOOGLE_LOOKAROUND_DAYS = 90;
  * event's date. Refuses rather than guesses. Ids stay inside the call: only the label is ever
  * shown, and the included account records (which hold an email) are never read.
  */
-async function resolveGoogleTarget(name: string, startsAt: string, tz: string): Promise<{ label: string; calendarId: string; accountId: string | number }> {
-  const want = name.trim().toLowerCase();
+async function resolveGoogleTarget(name: string | null, startsAt: string, tz: string): Promise<{ label: string; calendarId: string; accountId: string | number; viaDefault: boolean } | undefined> {
+  const want = name === null ? null : name.trim().toLowerCase();
+  const viaDefault = want === null;
   const sources = await getClient().get<{ data: Awaited<ReturnType<typeof getSourceCalendars>> }>("/api/frames/{frameId}/source_calendars", { include: "calendar_account" });
   const gmail = (sources.data ?? []).filter((c) => c.attributes.kind === "gmail");
   const labelOf = (c: (typeof gmail)[number]) => String(c.attributes.label ?? "").trim();
   const known = gmail.map(labelOf).join(", ") || "none";
-  const matches = gmail.filter((c) => labelOf(c).toLowerCase() === want);
-  if (matches.length === 0) throw new Error(`No linked Google calendar named "${name}". Linked Google calendars: ${known}. Nothing was created.`);
-  if (matches.length > 1) throw new Error(`More than one linked Google calendar is named "${name}". Nothing was created.`);
+  let matches: typeof gmail;
+  if (want === null) {
+    // No calendar named: the household's default for new events (the one the Skylight app preselects).
+    // None marked, or the default is not a Google calendar: the caller falls back to Skylight's own.
+    matches = gmail.filter((c) => (c.attributes as Record<string, unknown>).default_for_new_events === true);
+    if (matches.length === 0) return undefined;
+    if (matches.length > 1) throw new Error(`More than one linked Google calendar is marked as the default for new events (${matches.map(labelOf).join(", ")}). Nothing was created.`);
+  } else {
+    matches = gmail.filter((c) => labelOf(c).toLowerCase() === want);
+    if (matches.length === 0) throw new Error(`No linked Google calendar named "${name}". Linked Google calendars: ${known}. Nothing was created.`);
+    if (matches.length > 1) throw new Error(`More than one linked Google calendar is named "${name}". Nothing was created.`);
+  }
   const cal = matches[0]!;
   if (cal.attributes.editable === false || cal.attributes.role === "reader") {
     throw new Error(`"${labelOf(cal)}" is read-only for this account, so events cannot be written to it. Nothing was created.`);
@@ -152,7 +164,7 @@ async function resolveGoogleTarget(name: string, startsAt: string, tz: string): 
   const calendarId = String(cal.attributes.source_id ?? "");
   if (!calendarId) throw new Error(`"${labelOf(cal)}" has no calendar address in Skylight. Nothing was created.`);
   const linked = (cal as { relationships?: { calendar_account?: { data?: { id?: unknown } | null } } }).relationships?.calendar_account?.data?.id;
-  if ((typeof linked === "string" && linked !== "") || typeof linked === "number") return { label: labelOf(cal), calendarId, accountId: linked };
+  if ((typeof linked === "string" && linked !== "") || typeof linked === "number") return { label: labelOf(cal), calendarId, accountId: linked, viaDefault };
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(startsAt.trim());
   const centre = m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : Date.now();
   const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -174,7 +186,7 @@ async function resolveGoogleTarget(name: string, startsAt: string, tz: string): 
     const rel = (e as { relationships?: { calendar_account?: { data?: { id?: unknown } | null } } }).relationships?.calendar_account?.data;
     const acct = rel?.id ?? a.calendar_account_id;
     if ((typeof acct === "string" && acct !== "") || typeof acct === "number") {
-      return { label: labelOf(cal), calendarId, accountId: acct };
+      return { label: labelOf(cal), calendarId, accountId: acct, viaDefault };
     }
     idKinds.add(acct === null ? "null" : typeof acct);
   }
@@ -581,10 +593,10 @@ Parameters:
   - yearly: repeats on the start's date (a birthday, an anniversary), interval 1-10; until or count, or neither for no end.
   - Skylight SKIPS a month that has no such day (a monthly series on the 29th-31st misses short months; a 5th weekday misses most months) and a year without Feb 29. Nothing is moved. The preview lists what is skipped: tell the person before they confirm.
 - dinner: true makes a free-tier "Dinner plan" instead of an event: Skylight's stand-in for Meals on an account without Plus (an all-day event of kind "meal", tagged "Dinner Plan" by Skylight). Give the dish as summary, startsAt as the date YYYY-MM-DD, and leave out endsAt or set it to the next day; no profiles, calendar or repeat. On a Plus account plan dinners with the meal tools instead. Not yet verified through this tool.
-- calendar: name of a linked Google calendar (see get_source_calendars, kind gmail). Follow the person's standing rule for where new events go: Skylight's apps preselect the household's default calendar, which is often a linked Google calendar, so name it when that is where the person keeps their events. Omit it and the event goes to Skylight's own calendar, which does NOT appear in Google. With it the event (or series) is written to that Google calendar and shows for everyone who shares it, so it needs confirm: true like a series.
-- confirm: required for a series or when calendar is given. Without confirm: true nothing is created; you get a preview (a series lists every date; a calendar names it). Show it to the person, get their yes, then call again with confirm: true.
+- calendar: where the event goes. Omit it and the event goes to the household's default calendar for new events, the one the Skylight app preselects (often a linked Google calendar, so it shows for everyone who shares it). Name another linked Google calendar to choose it (see get_source_calendars, kind gmail), or pass "skylight" for Skylight's own calendar, which does NOT appear in Google. If the household has no default Google calendar, an omitted calendar means Skylight's own.
+- confirm: required for a series and whenever the event goes to a Google calendar, the default included. Without confirm: true nothing is created; you get a preview (a series lists every date; a Google calendar is named). Show it to the person, get their yes, then call again with confirm: true.
 
-REPEATING SERIES: give startsAt/endsAt as local times with no offset; more than one profile is refused. ALL-DAY SERIES (allDay: true): give startsAt and endsAt as dates YYYY-MM-DD with endsAt the day AFTER startsAt (one day per occurrence; the end is exclusive); verified live 2026-11-09. Without calendar the series is created on Skylight's own calendar (verified live 2026-11-08): it shows on the Skylight displays and app, and is NOT written to Google, so people who only use Google Calendar will not see it. With calendar it is written to that Google calendar (a one-off event verified live 2026-11-09; a monthly series verified live 2026-11-16). This tool does not check conflicts: call find_conflicts over the series dates first. To undo a series, delete_calendar_event with scope "all".
+REPEATING SERIES: give startsAt/endsAt as local times with no offset; more than one profile is refused. ALL-DAY SERIES (allDay: true): give startsAt and endsAt as dates YYYY-MM-DD with endsAt the day AFTER startsAt (one day per occurrence; the end is exclusive); verified live 2026-11-09. A series on Skylight's own calendar (calendar: "skylight"; verified live 2026-11-08) shows on the Skylight displays and app, and is NOT written to Google, so people who only use Google Calendar will not see it. On a Google calendar, named or the household default, it is written to Google (a one-off event verified live 2026-11-09; a monthly series verified live 2026-11-16). The default is resolved from the calendar list: not yet verified live. This tool does not check conflicts: call find_conflicts over the series dates first. To undo a series, delete_calendar_event with scope "all".
 
 Returns: The created event details.
 
@@ -610,8 +622,8 @@ Related: get_family_members lists the profile names and IDs.`,
         .strict()
         .optional()
         .describe("Make this a repeating series (see the tool description)."),
-      calendar: z.string().optional().describe("Name of a linked Google calendar to write to (see get_source_calendars). Follow the person's standing rule for where events go; omitted, the event goes to Skylight's own calendar, which does not appear in Google."),
-      confirm: z.boolean().optional().describe("Series or calendar only: must be true to create; otherwise a preview is returned."),
+      calendar: z.string().optional().describe("Where the event goes. Omit for the household's default calendar for new events (what the Skylight app preselects, often a linked Google calendar); name another linked Google calendar (see get_source_calendars); or 'skylight' for Skylight's own calendar, which does not appear in Google."),
+      confirm: z.boolean().optional().describe("Series, or any event that goes to a Google calendar (the default included): must be true to create; otherwise a preview is returned."),
       dinner: z.boolean().optional().describe("True for a free-tier Dinner plan (see the tool description)."),
     },
     async ({ summary, startsAt, endsAt: endsAtArg, allDay, description, location, profiles, categoryIds, repeat, calendar, confirm, dinner }) => {
@@ -635,9 +647,26 @@ Related: get_family_members lists the profile names and IDs.`,
         const endsAt = endsAtArg;
         if (profiles?.length && categoryIds?.length) throw new Error("Give profiles or categoryIds, not both.");
         const resolved = profiles?.length ? (await resolveProfileIds(profiles)).ids : categoryIds;
-        const target = calendar ? await resolveGoogleTarget(calendar, startsAt, config.timezone) : undefined;
+        // calendar omitted: the household's default for new events (what the Skylight app preselects);
+        // calendar "skylight": Skylight's own calendar on purpose; otherwise a named Google calendar.
+        const named = calendar?.trim() ?? "";
+        let target: Awaited<ReturnType<typeof resolveGoogleTarget>>;
+        if (named.toLowerCase() === OWN_CALENDAR) {
+          target = undefined;
+        } else if (named) {
+          target = await resolveGoogleTarget(named, startsAt, config.timezone);
+        } else {
+          try {
+            target = await resolveGoogleTarget(null, startsAt, config.timezone);
+          } catch (error) {
+            // Never fall back silently to a calendar nobody else sees.
+            throw new Error(`${error instanceof Error ? error.message : String(error)} To write to Skylight's own calendar instead, pass calendar: "${OWN_CALENDAR}".`);
+          }
+        }
         const destination = target
-          ? `Goes to the Google calendar "${target.label}": it shows for everyone who shares that calendar, with Google's default reminders. Delete it later with delete_calendar_event.`
+          ? target.viaDefault
+            ? `Goes to the Google calendar "${target.label}", the household's default for new events (what the Skylight app preselects): it shows for everyone who shares that calendar, with Google's default reminders. To put it on Skylight's own calendar instead, call again with calendar: "${OWN_CALENDAR}". Delete it later with delete_calendar_event.`
+            : `Goes to the Google calendar "${target.label}": it shows for everyone who shares that calendar, with Google's default reminders. Delete it later with delete_calendar_event.`
           : "Goes to Skylight's own calendar: it shows on the Skylight displays and app and is not written to Google.";
         let rrule: string[] | undefined;
         if (repeat) {
