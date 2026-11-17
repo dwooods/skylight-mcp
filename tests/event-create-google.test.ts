@@ -28,7 +28,7 @@ type Post = { url: string; body: Record<string, unknown> };
 const GCAL = "family-secret-addr@group.calendar.example.com";
 const ACCT = "acct-secret-77";
 
-function stub(opts: { withEvent?: boolean; acct?: unknown; relOnly?: boolean; sourceAcct?: string } = {}) {
+function stub(opts: { withEvent?: boolean; acct?: unknown; relOnly?: boolean; sourceAcct?: string; defaults?: string[] } = {}) {
   const posts: Post[] = [];
   const urls: string[] = [];
   const withEvent = opts.withEvent ?? true;
@@ -42,7 +42,7 @@ function stub(opts: { withEvent?: boolean; acct?: unknown; relOnly?: boolean; so
       }
       if (u.includes("/source_calendars")) {
         const sc = (id: string, label: string, kind: string, source_id: string, role: string, editable: boolean) => ({
-          id, type: "source_calendar", attributes: { label, kind, source_id, role, editable },
+          id, type: "source_calendar", attributes: { label, kind, source_id, role, editable, ...(opts.defaults?.includes(id) ? { default_for_new_events: true } : {}) },
           ...(opts.sourceAcct && id === "1" && u.includes("calendar_account") ? { relationships: { calendar_account: { data: { type: "calendar_account", id: opts.sourceAcct } } } } : {}),
         });
         return new Response(JSON.stringify({ data: [
@@ -155,6 +155,83 @@ describe("create_calendar_event with calendar (Google target)", () => {
     await call({ summary: "Dentist", startsAt: one.startsAt, endsAt: one.endsAt });
     expect(s.posts[0]!.body).not.toHaveProperty("calendar_id");
     expect(s.posts[0]!.body).not.toHaveProperty("calendar_account_id");
+  });
+
+  describe("calendar omitted: the household default for new events", () => {
+    const bare = { summary: "Dentist", startsAt: one.startsAt, endsAt: one.endsAt };
+
+    it("default is a writable Google calendar: previews naming it, posts nothing, leaks no ids", async () => {
+      const s = stub({ defaults: ["1"] });
+      const out = await call(bare);
+      expect(out.isError).toBe(false);
+      expect(out.text).toContain("PREVIEW, nothing created");
+      expect(out.text).toContain('Google calendar "Family"');
+      expect(out.text).toContain("household's default");
+      expect(out.text).toContain('calendar: "skylight"');
+      expect(out.text).not.toContain(GCAL);
+      expect(s.posts).toEqual([]);
+    });
+
+    it("with confirm: writes to that calendar", async () => {
+      const s = stub({ defaults: ["1"] });
+      const out = await call({ ...bare, confirm: true });
+      expect(out.isError).toBe(false);
+      expect(s.posts).toHaveLength(1);
+      expect(s.posts[0]!.body).toMatchObject({ calendar_id: GCAL, calendar_account_id: ACCT });
+    });
+
+    it('calendar "skylight" (any case) goes to Skylight\'s own calendar even when a default exists', async () => {
+      const s = stub({ defaults: ["1"] });
+      const out = await call({ ...bare, calendar: " Skylight " });
+      expect(out.isError).toBe(false);
+      expect(s.posts).toHaveLength(1);
+      expect(s.posts[0]!.body).not.toHaveProperty("calendar_id");
+      expect(s.posts[0]!.body).not.toHaveProperty("calendar_account_id");
+    });
+
+    it("no calendar marked as default: unchanged, Skylight's own calendar", async () => {
+      const s = stub();
+      await call(bare);
+      expect(s.posts).toHaveLength(1);
+      expect(s.posts[0]!.body).not.toHaveProperty("calendar_id");
+    });
+
+    it("a default that is a subscription feed falls back to Skylight's own calendar", async () => {
+      const s = stub({ defaults: ["2"] });
+      await call(bare);
+      expect(s.posts).toHaveLength(1);
+      expect(s.posts[0]!.body).not.toHaveProperty("calendar_id");
+    });
+
+    it("a read-only default fails closed with the escape hint and posts nothing, even with confirm", async () => {
+      const s = stub({ defaults: ["3"] });
+      const out = await call({ ...bare, confirm: true });
+      expect(out.isError).toBe(true);
+      expect(out.text).toContain('calendar: "skylight"');
+      expect(s.posts).toEqual([]);
+    });
+
+    it("two Google calendars marked default fails closed", async () => {
+      const s = stub({ defaults: ["1", "3"] });
+      const out = await call({ ...bare, confirm: true });
+      expect(out.isError).toBe(true);
+      expect(s.posts).toEqual([]);
+    });
+
+    it("an unresolvable account fails closed with the hint", async () => {
+      const s = stub({ defaults: ["1"], withEvent: false });
+      const out = await call({ ...bare, confirm: true });
+      expect(out.isError).toBe(true);
+      expect(out.text).toContain('calendar: "skylight"');
+      expect(s.posts).toEqual([]);
+    });
+
+    it("a named calendar still wins over the default", async () => {
+      const s = stub({ defaults: ["3"] });
+      const out = await call({ ...bare, calendar: "Family", confirm: true });
+      expect(out.isError).toBe(false);
+      expect(s.posts[0]!.body.calendar_id).toBe(GCAL);
+    });
   });
 
   it.each([

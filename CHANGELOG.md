@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-11-16
+
+### Changed
+- `create_calendar_event`: omitting `calendar` now writes to the household's default calendar for new events (`default_for_new_events` on the source calendar list), as the Skylight app does. Before, an omitted `calendar` always meant Skylight's own calendar, which does not appear in Google. When that default is a writable linked Google calendar the event is previewed first and needs `confirm: true`, like any Google write. With no default Google calendar, behaviour is unchanged.
+- `calendar: "skylight"` (any case) now means Skylight's own calendar on purpose, the same word the library entry uses. A Google calendar labelled "Skylight" cannot be chosen by name.
+- A default that is read-only, ambiguous (two defaults) or whose account cannot be resolved fails closed with an error that names `calendar: "skylight"`; it never falls back silently to a calendar nobody else sees.
+- Not verified live: the default resolution has only mocked tests so far. The library (`createSkylight`) is unchanged and still requires an explicit `calendar`.
+
 ## [1.25.1] - 2026-11-16
 
 ### Changed
