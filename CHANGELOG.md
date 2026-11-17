@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The `create_calendar_event` tool text and the README now record the household-default calendar as verified live on 2026-11-16 (confirmed create and delete through Duet, checked in Google). Text only; behaviour is unchanged. The no-default fallback, a read-only default and two defaults remain mocked only.
+
 ## [1.26.0] - 2026-11-16
 
 ### Changed
