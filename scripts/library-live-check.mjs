@@ -57,7 +57,15 @@ const events = await check("calendar.events", () => skylight.calendar.events({ f
 await check("calendar.sources", () => skylight.calendar.sources());
 await check("profiles.list", () => skylight.profiles.list());
 await check("chores.list", () => skylight.chores.list({ date: today }));
-await check("meals.sittings", () => skylight.meals.sittings({ from, to }));
+const meals = await check("meals.sittings", () => skylight.meals.sittings({ from, to }), { allowEmails: [".description", ".note"] });
+// Properties that matter for meals (counts only). A count of zero means "not compared", not "fine".
+if (Array.isArray(meals)) {
+  const withText = (k) => meals.filter((m) => typeof m[k] === "string" && m[k] !== "").length;
+  const shapeOk = meals.every((m) => /^[0-9a-f]{16}$/.test(m.version) && Array.isArray(m.profiles) && m.profiles.length === m.profileIds.length && typeof m.detached === "boolean");
+  if (!shapeOk) hardFailures++;
+  console.log(`${shapeOk ? "ok  " : "FAIL"} meals: ${meals.length} sitting(s); with description ${withText("description")}; with note ${withText("note")}; with people ${meals.filter((m) => m.profileIds.length > 0).length}; detached ${meals.filter((m) => m.detached).length}; version/profile shape ${shapeOk}`);
+  if (meals.length === 0 || withText("description") + withText("note") === 0) console.log("     NOT COMPARED: no meal with description or note in the window; widen the window or add one in the app.");
+}
 await check("meals.recipes", () => skylight.meals.recipes());
 await check("meals.categories", () => skylight.meals.categories());
 const lists = await check("lists.list", () => skylight.lists.list());
