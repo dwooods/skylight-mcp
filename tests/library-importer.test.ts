@@ -1013,3 +1013,65 @@ describe("setup entry, from the importer's side (packed package)", () => {
     for (const word of ["baseUrl", "fetch", "host", "accessToken", "refreshToken", "codeVerifier"]) expect(declarations).not.toContain(word);
   });
 });
+
+describe("library entry: meal reads (description, note, people, version)", () => {
+  const sitting = (over: Record<string, unknown> = {}, rel: Record<string, unknown> = {}, id = "5") => ({
+    id,
+    type: "meal_sitting",
+    attributes: { summary: "Tacos", instances: ["2037-03-03", "2037-03-10"], recurring: true, rrule: "FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU", description: "https://recipes.example.com/tacos\nStep 1: brown the beef.\nStep 2: serve.", note: "Meatless night.\nEat by 5:45.", ...over },
+    relationships: { meal_category: { data: { id: "3", type: "meal_category" } }, meal_recipe: { data: null }, profiles: { data: [{ id: "11", type: "category" }, { id: "99", type: "category" }] }, ...rel },
+  });
+  const included = [
+    { id: "11", type: "category", attributes: { label: "Alex" } },
+    { id: "12", type: "category", attributes: { label: "person.one@example.com" } },
+  ];
+  const read = (data: unknown[], inc: unknown[] = included) =>
+    runImporter(`${make}\nreturn await sky.meals.sittings({ from: "2037-03-03", to: "2037-03-10" });`, fixtures({ "/meals/sittings": { data, included: inc } }));
+
+  it("M1. a meal carries its description and note exactly as stored (line breaks and link kept), who it is for, and a version", () => {
+    const r = read([sitting()]);
+    const [m] = r.out as Array<Record<string, unknown>>;
+    expect(m!.description).toBe("https://recipes.example.com/tacos\nStep 1: brown the beef.\nStep 2: serve.");
+    expect(m!.note).toBe("Meatless night.\nEat by 5:45.");
+    expect(m!.profiles).toEqual(["Alex", "Someone"]);
+    expect(m!.profileIds).toEqual(["11", "99"]);
+    expect(m!.detached).toBe(false);
+    expect(m!.recurring).toBe(true);
+    expect(m!.version).toMatch(/^[0-9a-f]{16}$/);
+    expect(Object.keys(m!).sort()).toEqual(["category", "dates", "description", "detached", "id", "note", "profileIds", "profiles", "recipeId", "recurring", "title", "version"]);
+    // The read asks for the people the way the app does.
+    const get = r.calls.find((c) => c.url.includes("/meals/sittings"))!;
+    expect(get.url).toContain("include=meal_category%2Cmeal_recipe%2Cprofiles");
+  });
+
+  it("M2. empty text reads as null, and an occurrence edited on its own reads as detached", () => {
+    const [m] = read([sitting({ description: "", note: "", rrule: null }, { profiles: { data: [] } })]).out as Array<Record<string, unknown>>;
+    expect(m!.description).toBeNull();
+    expect(m!.note).toBeNull();
+    expect(m!.profiles).toEqual([]);
+    expect(m!.detached).toBe(true);
+    const [one] = read([sitting({ recurring: false, rrule: null })]).out as Array<Record<string, unknown>>;
+    expect(one!.detached).toBe(false);
+    expect(one!.recurring).toBe(false);
+  });
+
+  it("M3. an email-shaped profile label never leaves the library", () => {
+    const [m] = read([sitting({}, { profiles: { data: [{ id: "12", type: "category" }] } })]).out as Array<Record<string, unknown>>;
+    expect(m!.profiles).toEqual(["Calendar"]);
+    expect(JSON.stringify(m)).not.toMatch(EMAIL);
+  });
+
+  it("M4. the version changes with the text, people, category and rule, not with other days of the series", () => {
+    const v = (data: unknown) => ((read([data]).out as Array<{ version: string }>)[0]!.version);
+    const base = v(sitting());
+    expect(v(sitting())).toBe(base);
+    expect(v(sitting({ note: "Different." }))).not.toBe(base);
+    expect(v(sitting({ description: "Different." }))).not.toBe(base);
+    expect(v(sitting({ summary: "Pizza" }))).not.toBe(base);
+    expect(v(sitting({ rrule: "FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=WE" }))).not.toBe(base);
+    expect(v(sitting({}, { profiles: { data: [{ id: "11", type: "category" }] } }))).not.toBe(base);
+    expect(v(sitting({}, { meal_category: { data: { id: "4", type: "meal_category" } } }))).not.toBe(base);
+    expect(v(sitting({ instances: ["2037-03-03"] }))).toBe(base);
+    expect(v(sitting({}, {}, "6"))).not.toBe(base);
+  });
+});

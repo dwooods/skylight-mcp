@@ -408,7 +408,7 @@ export async function commitCreate(
 // ---------------------------------------------------------------------------------------------
 
 /** FNV-1a, twice with different seeds: a stable 16-hex fingerprint with no crypto (runs in Workers). */
-function fnv(text: string, seed: number): string {
+export function fnv(text: string, seed: number): string {
   let h = seed >>> 0;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);

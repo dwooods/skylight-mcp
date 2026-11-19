@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Library: `meals.sittings()` now returns `description`, `note`, `profiles`, `profileIds`, `detached` and `version` on each sitting (`MealSittingDto`). Additive; existing fields are unchanged. The read asks Skylight for the people (`include=profiles`, API version 2026-10-15), as the MCP tools already do. Mocked tests only so far: the default-version read's `description` and `note` and the new read path against a real frame are not yet checked live.
+
 ### Changed
 - The `create_calendar_event` tool text and the README now record the household-default calendar as verified live on 2026-11-16 (confirmed create and delete through Duet, checked in Google). Text only; behaviour is unchanged. The no-default fallback, a read-only default and two defaults remain mocked only.
 

@@ -28,7 +28,8 @@ import { getCalendarEvents, getSourceCalendars } from "./api/endpoints/calendar.
 import { getCategories } from "./api/endpoints/categories.js";
 import { getChores } from "./api/endpoints/chores.js";
 import { getListWithItems, getLists } from "./api/endpoints/lists.js";
-import { getMealCategories, getMealSittings, getRecipes, mealCategoryName } from "./api/endpoints/meals.js";
+import { getMealCategories, getMealSittingsWithProfiles, getRecipes, mealCategoryName, mealKind } from "./api/endpoints/meals.js";
+import { mealVersion } from "./lib-meals.js";
 import { isChoreDone, parseOccurrenceId } from "./api/endpoints/chores.js";
 import { addDays } from "./utils/schedule.js";
 import { redactFeedUrl } from "./utils/redact.js";
@@ -159,6 +160,18 @@ export interface MealSittingDto {
   category: string | null;
   recipeId: string | null;
   recurring: boolean;
+  /** The "Instructions or ingredients" text, exactly as stored (line breaks kept). Often a recipe link plus steps. Null when empty. */
+  description: string | null;
+  /** The meal's note, exactly as stored (line breaks kept). Null when empty. */
+  note: string | null;
+  /** Names of the profiles the meal is for, as `profiles.list()` labels them. Empty when unassigned. */
+  profiles: string[];
+  /** Ids of `profiles`, same order. */
+  profileIds: string[];
+  /** True for an occurrence that was edited on its own: its own sitting now, still marked as repeating, with no link back to the series. */
+  detached: boolean;
+  /** Fingerprint of the fields shown here (and the rule). Changes when the title, category, recipe, text, people or rule change; not when other days of a series change. */
+  version: string;
 }
 
 export interface RecipeDto {
@@ -484,8 +497,8 @@ export function createSkylight(options: CreateSkylightOptions): Skylight {
       sittings: (range) =>
         run(async () => {
           const { from, to } = assertRange(range);
-          const [sittings, categories] = await Promise.all([
-            getMealSittings({ dateMin: from, dateMax: addDays(to, 1) }),
+          const [{ sittings, profileLabels }, categories] = await Promise.all([
+            getMealSittingsWithProfiles({ dateMin: from, dateMax: addDays(to, 1) }),
             getMealCategories(),
           ]);
           const names = new Map(categories.map((c) => [String(c.id), mealCategoryName(c)]));
@@ -494,6 +507,7 @@ export function createSkylight(options: CreateSkylightOptions): Skylight {
             const dates = a.instances?.length ? a.instances : a.date ? [a.date] : [];
             const cid = s.relationships?.meal_category?.data?.id;
             const rid = s.relationships?.meal_recipe?.data?.id;
+            const profileIds = (s.relationships?.profiles?.data ?? []).map((p) => String(p.id));
             return {
               id: String(s.id),
               dates: dates.filter((d) => DATE.test(d) && d >= from && d <= to),
@@ -501,6 +515,16 @@ export function createSkylight(options: CreateSkylightOptions): Skylight {
               category: cid ? (names.get(String(cid)) ?? null) : null,
               recipeId: rid ? String(rid) : null,
               recurring: a.recurring === true || Boolean(a.rrule),
+              description: str(a.description),
+              note: str(a.note),
+              // An email-shaped label is replaced, as for events; an id with no label reads "Someone".
+              profiles: profileIds.map((id) => {
+                const label = profileLabels.get(id);
+                return label === undefined ? "Someone" : EMAIL.test(label) ? "Calendar" : label;
+              }),
+              profileIds,
+              detached: mealKind(s) === "detached",
+              version: mealVersion(s),
             };
           });
         }),
