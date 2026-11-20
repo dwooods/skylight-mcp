@@ -462,6 +462,11 @@ export interface UpdateMealSittingOptions {
   scope?: MealEditScope;
   /** For scope "all": the series' original start date, from findSeriesStart. */
   seriesStart?: string;
+  /**
+   * Allow editing an occurrence that was edited on its own (captured 2026-11-19: PATCH with
+   * apply_to=one and rrule null, same id back). Off by default so the MCP tool keeps refusing.
+   */
+  allowDetached?: boolean;
 }
 
 export interface MealUpdateResult {
@@ -498,6 +503,9 @@ export async function updateMealSitting(options: UpdateMealSittingOptions): Prom
       }
       bodyDate = assertIsoDate(options.seriesStart);
     }
+  } else if (kind === "detached" && options.allowDetached) {
+    if (target !== date) throw new Error("Moving an occurrence that was edited on its own to another day is not supported here; use the Skylight app.");
+    scope = "one";
   } else {
     assertOneOff(existing);
   }
@@ -522,6 +530,7 @@ export async function updateMealSitting(options: UpdateMealSittingOptions): Prom
     `/api/frames/{frameId}/meals/sittings/${assertSittingId(existing.id)}/instances/${date}`,
     { method: "PATCH", body: payload, params, apiVersion: MEAL_EDIT_API_VERSION }
   );
+  if (kind === "detached") return { sittingId: existing.id };
   if (scope === "one" || scope === "future") {
     const moved = (response.data ?? []).find((x) => x.id !== existing.id && x.attributes.instances?.includes(date));
     return { sittingId: moved?.id ?? null };
@@ -539,24 +548,27 @@ export async function updateMealSitting(options: UpdateMealSittingOptions): Prom
 export async function deleteMealSitting(
   existing: MealSittingResource,
   date: string,
-  scope: MealDeleteScope = "one"
+  scope: MealDeleteScope = "one",
+  allowDetached = false
 ): Promise<boolean> {
   assertIsoDate(date);
   const id = assertSittingId(existing.id);
   const kind = mealKind(existing);
-  if (kind === "detached") {
+  if (kind === "detached" && !allowDetached) {
     throw new Error(
       "This occurrence was edited on its own and is detached from its series. Deleting it is not supported here; use the Skylight app."
     );
   }
   const params = instanceQuery(date);
+  // A detached occurrence is deleted with apply_to=one (captured 2026-11-19), as the app does.
   if (kind === "series") params.apply_to = scope;
+  else if (kind === "detached") params.apply_to = "one";
   const response = await getClient().request<SittingEnvelope>(
     `/api/frames/{frameId}/meals/sittings/${id}/instances/${date}`,
     { method: "DELETE", params, apiVersion: MEAL_EDIT_API_VERSION }
   );
   const deleted = (response?.meta?.deleted_sitting_ids ?? []).map(String).includes(id);
-  if (kind === "one-off" || scope === "all") return deleted;
+  if (kind === "one-off" || kind === "detached" || scope === "all") return deleted;
   // one / future leave the series in place: it is returned without the date.
   const left = (response.data ?? []).find((s) => s.id === id);
   return !!left && !(left.attributes.instances ?? []).includes(date);

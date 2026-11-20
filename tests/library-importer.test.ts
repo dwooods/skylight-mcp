@@ -1178,14 +1178,25 @@ describe("library meal writes: create, update, delete (2026-11-19)", { timeout: 
     const r0 = run(
       `const r = {};
       r.none = await (async () => { ${attempt(`sky.meals.update({ ${ref(s)}, changes: { note: "x" } })`)} })();
-      r.one = await (async () => { ${attempt(`sky.meals.update({ ${ref(s)}, scope: "one", changes: { note: "x" } })`)} })();
       r.move = await (async () => { ${attempt(`sky.meals.update({ ${ref(s)}, scope: "future", changes: { date: "2037-03-04" } })`)} })();
       return r;`,
       { data: [s] }
     );
     const o0 = r0.out as Record<string, { code: string }>;
-    expect(Object.fromEntries(Object.entries(o0).map(([k, v]) => [k, v.code]))).toEqual({ none: "scope_required", one: "unsupported", move: "unsupported" });
+    expect(Object.fromEntries(Object.entries(o0).map(([k, v]) => [k, v.code]))).toEqual({ none: "scope_required", move: "unsupported" });
     expect(writes(r0.calls)).toHaveLength(0);
+
+    // Scope "one": the day becomes a meal of its own under a new id (captured 2026-11-19); the PATCH keeps the series rule.
+    const split = sitting({ note: "Just today.", recurring: true, rrule: null }, {}, "56");
+    const one = run(
+      `return await sky.meals.update({ ${ref(s)}, scope: "one", changes: { note: "Just today." } });`,
+      seq([s], [split]),
+      { ["PATCH /instances/" + DAY]: { data: [split, series({ instances: ["2037-03-10"] })] } }
+    );
+    expect(one.out).toMatchObject({ id: "56", note: "Just today.", detached: true, recurring: true });
+    const w1 = writes(one.calls)[0]!;
+    expect(queryOf(w1).apply_to).toBe("one");
+    expect(JSON.parse(w1.body!)).toMatchObject({ date: DAY, note: "Just today.", rrule: "FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU" });
 
     const moved = series({ note: "Fresh.", instances: [DAY, "2037-03-10"] }, "55");
     const fut = run(
@@ -1209,20 +1220,44 @@ describe("library meal writes: create, update, delete (2026-11-19)", { timeout: 
     expect(JSON.parse(w[0]!.body!).rrule).toBe("FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU");
   });
 
-  it("W6. a one-off with a scope is refused; an occurrence edited on its own can be neither changed nor deleted here", () => {
+  it("W6. a one-off takes no scope; an occurrence edited on its own is changed and deleted with apply_to=one and its own id, takes no scope, and cannot be moved", () => {
     const one = sitting();
-    const d = detached();
     const a = run(`${attempt(`sky.meals.update({ ${ref(one)}, scope: "all", changes: { note: "x" } })`)}`, { data: [one] });
     expect((a.out as { code: string }).code).toBe("scope_not_allowed");
+    expect(writes(a.calls)).toHaveLength(0);
+
+    const d = detached();
     const b = run(`const r = {};
-      r.update = await (async () => { ${attempt(`sky.meals.update({ ${ref(d)}, changes: { note: "x" } })`)} })();
-      r.del = await (async () => { ${attempt(`sky.meals.delete({ ${ref(d)} })`)} })();
+      r.updScope = await (async () => { ${attempt(`sky.meals.update({ ${ref(d)}, scope: "one", changes: { note: "x" } })`)} })();
       r.delScope = await (async () => { ${attempt(`sky.meals.delete({ ${ref(d)}, scope: "one" })`)} })();
+      r.move = await (async () => { ${attempt(`sky.meals.update({ ${ref(d)}, changes: { date: "2037-03-04" } })`)} })();
       return r;`, { data: [d] });
     const o = b.out as Record<string, { code: string }>;
-    expect(Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v.code]))).toEqual({ update: "unsupported", del: "unsupported", delScope: "unsupported" });
-    expect(writes(a.calls)).toHaveLength(0);
+    expect(Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v.code]))).toEqual({ updScope: "scope_not_allowed", delScope: "scope_not_allowed", move: "unsupported" });
     expect(writes(b.calls)).toHaveLength(0);
+
+    const after = sitting({ description: "two", recurring: true, rrule: null });
+    const upd = run(
+      `return await sky.meals.update({ ${ref(d)}, changes: { description: "two" } });`,
+      seq([d], [after]),
+      { ["PATCH /instances/" + DAY]: { data: [after] } }
+    );
+    expect(upd.out).toMatchObject({ id: "5", description: "two", detached: true });
+    const w = writes(upd.calls)[0]!;
+    expect(queryOf(w).apply_to).toBe("one");
+    expect(JSON.parse(w.body!)).toMatchObject({ date: DAY, description: "two", rrule: null, summary: "Tacos" });
+
+    const del = run(
+      `const p = await sky.meals.previewDelete({ ${ref(d)} });\nconst r = await sky.meals.delete({ ${ref(d)} });\nreturn { p, r };`,
+      seq([d], [d], [d], []),
+      { ["DELETE /instances/" + DAY]: { data: [], meta: { deleted_sitting_ids: [5] } } }
+    );
+    expect((del.out as { r: unknown }).r).toEqual({ deleted: true, id: "5", scope: null });
+    expect((del.out as { p: { effect: string } }).p.effect).toContain("edited on its own");
+    const wd = writes(del.calls);
+    expect(wd).toHaveLength(1);
+    expect(wd[0]!.method).toBe("DELETE");
+    expect(queryOf(wd[0]!).apply_to).toBe("one");
   });
 
   it("W7. delete a one-off: preview first, then a DELETE with no scope, read back until it is gone", () => {

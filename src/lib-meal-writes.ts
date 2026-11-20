@@ -8,10 +8,11 @@
  * fingerprint of the fields shown and the rule. A change landing between the re-read and the write
  * is not caught.
  *
- * Refused, with code `unsupported`, because the request shape was never captured:
- * - editing or deleting an occurrence that was edited on its own (a "detached" meal);
- * - scope "one" on a series edit (it would make exactly such a meal, which could then not be changed);
- * - moving an occurrence of a series to another day, and editing a whole series whose start cannot be found.
+ * Scope "one" on a series makes the occurrence a meal of its own (a "detached" meal, new id, still
+ * marked as repeating, no link back). Such a meal is edited and deleted without a scope (captured
+ * 2026-11-19). Refused, with code `unsupported`, because the request shape was never captured:
+ * moving an occurrence (of a series, or one edited on its own) to another day, and editing a whole
+ * series whose start cannot be found.
  */
 
 import { getCategories } from "./api/endpoints/categories.js";
@@ -55,7 +56,11 @@ export interface MealRef {
 }
 
 export interface UpdateMealInput extends MealRef {
-  /** A repeating meal only: "future" (this and every later one) or "all" (the whole series). "one" is not supported yet. */
+  /**
+   * A repeating meal only: "one" (this day; it becomes a meal of its own under a new id), "future"
+   * (this and every later one; the later ones get a new id) or "all" (the whole series). A meal that
+   * was already edited on its own, and a one-off, take no scope.
+   */
   scope?: "one" | "future" | "all";
   /** What to change; anything left out stays. `date` moves a one-off meal. */
   changes: { title?: string; category?: string; description?: string; note?: string; profileIds?: string[]; date?: string };
@@ -83,7 +88,7 @@ export interface UpdateMealPreview<T> {
   action: "update";
   /** The meal as it is now. */
   meal: T;
-  scope: "future" | "all" | null;
+  scope: "one" | "future" | "all" | null;
   /** The fields that will be written. A cleared text field is null. */
   changes: { title?: string; category?: { id: string; name: string }; description?: string | null; note?: string | null; profileIds?: string[]; profiles?: string[]; date?: string };
   effect: string;
@@ -312,12 +317,11 @@ function mapReadFailure(error: unknown): unknown {
   return writeError("outcome_unknown", "Skylight did not answer the read. Nothing was written: try again.");
 }
 
-const DETACHED_WORDS = "That occurrence was edited on its own, so it is a standalone meal that Skylight still marks as repeating. It cannot be changed here yet: use the Skylight app.";
 
 interface UpdatePlan {
   found: Found;
   date: string;
-  scope: "future" | "all" | null;
+  scope: "one" | "future" | "all" | null;
   newDate: string;
   seriesStart: string | undefined;
   expect: { title: string; description: string | null; note: string | null; category: string; profileIds: string[] };
@@ -355,16 +359,15 @@ export async function planUpdateMeal(input: unknown): Promise<UpdatePlan> {
 
   const found = await findForWrite(raw, UPDATE_KEYS, "changed");
   const { sitting, kind, date } = found;
-  if (kind === "detached") throw writeError("unsupported", DETACHED_WORDS);
   const scope = (raw.scope as "one" | "future" | "all" | undefined) ?? null;
   if (kind === "series") {
-    if (scope === null) throw writeError("scope_required", 'That is an occurrence of a repeating meal: say scope "future" (this and every later one) or "all" (the whole series).');
-    if (scope === "one") {
-      throw writeError("unsupported", 'scope "one" is not supported for meals yet: the occurrence would become a standalone meal that could not then be changed here. Use "future" or "all", or the Skylight app.');
-    }
+    if (scope === null) throw writeError("scope_required", 'That is an occurrence of a repeating meal: say scope "one" (this day only), "future" (this and every later one) or "all" (the whole series).');
     if (moveTo !== undefined && moveTo !== date) throw writeError("unsupported", "Moving an occurrence of a repeating meal to another day is not supported here: use the Skylight app.");
-  } else if (scope !== null) {
-    throw writeError("scope_not_allowed", "scope applies to an occurrence of a repeating meal only.");
+  } else {
+    if (scope !== null) throw writeError("scope_not_allowed", "scope applies to an occurrence of a repeating meal only.");
+    if (kind === "detached" && moveTo !== undefined && moveTo !== date) {
+      throw writeError("unsupported", "Moving an occurrence that was edited on its own to another day is not supported here: use the Skylight app.");
+    }
   }
   const r = await refs();
   let category: { id: string; name: string } | undefined;
@@ -415,11 +418,13 @@ export async function planUpdateMeal(input: unknown): Promise<UpdatePlan> {
   }
   const name = expect.title || "this meal";
   const effect =
-    scope === "future" ? `"${name}" on ${date} and every later occurrence (Skylight gives the later ones a new id)`
+    scope === "one" ? `only "${name}" on ${date}, which becomes a meal of its own under a new id (the rest of the series stays)`
+    : scope === "future" ? `"${name}" on ${date} and every later occurrence (Skylight gives the later ones a new id)`
     : scope === "all" ? `the whole series "${name}", every occurrence past and future`
+    : kind === "detached" ? `"${name}" on ${date}, which was edited on its own (the rest of the series stays)`
     : newDate !== date ? `"${name}", moved from ${date} to ${newDate}`
     : `"${name}" on ${date}`;
-  return { found: { sitting, kind }, date, scope: scope as "future" | "all" | null, newDate, seriesStart, expect, preview: { action: "update", scope: scope as "future" | "all" | null, changes: want, effect, warnings } };
+  return { found: { sitting, kind }, date, scope, newDate, seriesStart, expect, preview: { action: "update", scope, changes: want, effect, warnings } };
 }
 
 function matchesExpect(s: MealSittingResource, plan: UpdatePlan): boolean {
@@ -430,7 +435,10 @@ function matchesExpect(s: MealSittingResource, plan: UpdatePlan): boolean {
   if (String(s.relationships?.meal_category?.data?.id ?? "") !== e.category) return false;
   if (!sameSet(profileIdsOf(s), e.profileIds)) return false;
   if (!(a.instances ?? []).includes(plan.newDate)) return false;
-  return plan.found.kind === "series" ? Boolean(a.rrule) : !a.rrule && a.recurring !== true;
+  // A series keeps its rule, except the day that was split off with scope "one"; a one-off stays a one-off.
+  if (plan.found.kind === "series" && plan.scope !== "one") return Boolean(a.rrule);
+  if (plan.found.kind === "one-off") return !a.rrule && a.recurring !== true;
+  return !a.rrule;
 }
 
 /** Update, then read back. Resolves with the meal as stored, under its id after the change ("future" gives the rest of the series a new id). */
@@ -451,6 +459,7 @@ export async function commitUpdateMeal(input: unknown): Promise<MealSittingResou
       ...(w.profileIds ? { profileIds: w.profileIds } : {}),
       ...(plan.scope ? { scope: plan.scope } : {}),
       ...(plan.seriesStart ? { seriesStart: plan.seriesStart } : {}),
+      allowDetached: true,
     });
   } catch (error) {
     throw mapWriteFailure(error);
@@ -459,6 +468,7 @@ export async function commitUpdateMeal(input: unknown): Promise<MealSittingResou
     list.find((s) => {
       if (!matchesExpect(s, plan)) return false;
       if (plan.scope === "future") return result.sittingId ? s.id === result.sittingId : true;
+      if (plan.scope === "one") return result.sittingId ? s.id === result.sittingId : s.id !== old.id;
       return s.id === old.id;
     });
   const back = await readBackUntil(() => listMealSittingsOn(plan.newDate), (list) => pick(list) !== undefined);
@@ -482,7 +492,6 @@ export async function planDeleteMeal(input: unknown): Promise<DeletePlan> {
     throw writeError("bad_input", 'scope must be "one", "future" or "all".');
   }
   const found = await findForWrite(raw, DELETE_KEYS, "deleted");
-  if (found.kind === "detached") throw writeError("unsupported", DETACHED_WORDS);
   const scope = (raw.scope as DeletePlan["scope"] | undefined) ?? null;
   if (found.kind === "series" && scope === null) {
     throw writeError("scope_required", 'That is an occurrence of a repeating meal: say scope "one", "future" (this and every later one) or "all" (the whole series).');
@@ -494,6 +503,7 @@ export async function planDeleteMeal(input: unknown): Promise<DeletePlan> {
     scope === "one" ? `only the occurrence of "${t}" on ${date}`
     : scope === "future" ? `"${t}" on ${date} and every later occurrence`
     : scope === "all" ? `the whole series "${t}", every occurrence past and future`
+    : found.kind === "detached" ? `"${t}" on ${date}, which was edited on its own (the rest of the series stays)`
     : `"${t}" on ${date}`;
   return { found: { sitting: found.sitting, kind: found.kind }, date, scope, effect };
 }
@@ -503,7 +513,7 @@ export async function commitDeleteMeal(input: unknown): Promise<{ deleted: true;
   const plan = await planDeleteMeal(input);
   const id = plan.found.sitting.id;
   try {
-    await deleteMealSitting(plan.found.sitting, plan.date, plan.scope ?? "one");
+    await deleteMealSitting(plan.found.sitting, plan.date, plan.scope ?? "one", true);
   } catch (error) {
     throw mapWriteFailure(error);
   }
