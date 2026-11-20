@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Library: `meals.sittings()` now returns `description`, `note`, `profiles`, `profileIds`, `detached` and `version` on each sitting (`MealSittingDto`). Additive; existing fields are unchanged. The read asks Skylight for the people (`include=profiles`, API version 2026-10-15), as the MCP tools already do. Mocked tests only so far: the default-version read's `description` and `note` and the new read path against a real frame are not yet checked live.
 
+- Library: meal writes. `meals.previewCreate`/`create`, `previewUpdate`/`update`, `previewDelete`/`delete`, each a preview/commit pair sharing one plan, with a `version` stale check, read-back confirmation and `SkylightWriteError` codes (new: `unknown_meal_category`). Create takes title, date, category, description, note, profileIds and `repeat: "weekly"`. A repeating meal takes scope `one`, `future` or `all`; scope `one` makes the day a meal of its own under a new id, which can then be edited (same id) and deleted without a scope. Moving a repeating or detached meal to another day is refused as `unsupported`. Request shapes captured from the Skylight web app on 2026-11-19 (scope `one` edit, detached edit, detached delete); library create with `description` or `note` is not yet run live. The MCP tools are unchanged and still refuse a meal that was edited on its own.
+
 ### Changed
 - The `create_calendar_event` tool text and the README now record the household-default calendar as verified live on 2026-11-16 (confirmed create and delete through Duet, checked in Google). Text only; behaviour is unchanged. The no-default fallback, a read-only default and two defaults remain mocked only.
 
