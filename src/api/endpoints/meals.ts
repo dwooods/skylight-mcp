@@ -255,6 +255,10 @@ export interface CreateMealSittingOptions {
   repeat?: "weekly";
   /** Profile (category) ids the meal is for. Empty or missing: unassigned. Sends the app's whole form under MEAL_EDIT_API_VERSION. */
   profileIds?: string[];
+  /** The "Instructions or ingredients" text. Sends the app's whole form under MEAL_EDIT_API_VERSION. */
+  description?: string;
+  /** The meal's note. Sends the app's whole form under MEAL_EDIT_API_VERSION. */
+  note?: string;
 }
 
 const WEEKDAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;
@@ -290,15 +294,15 @@ export async function createMealSitting(
   }
 
   const profileIds = [...new Set(options.profileIds ?? [])];
-  if (options.repeat === "weekly" || profileIds.length > 0) {
+  if (options.repeat === "weekly" || profileIds.length > 0 || options.description || options.note) {
     // A repeating or assigned create sends the web app's whole form (repeat captured 2026-11-01,
     // assignment 2026-11-12 under API version 2026-10-15). Not verified live from this code path.
     for (const id of profileIds) if (!/^\d{1,12}$/.test(id)) throw new Error("Profile IDs must be numeric.");
     const form = {
       date: options.date,
       summary: options.summary ?? "",
-      description: "",
-      note: "",
+      description: options.description ?? "",
+      note: options.note ?? "",
       meal_category_id: options.mealCategoryId,
       meal_recipe_id: options.recipeId ?? null,
       profile_ids: profileIds,
@@ -367,15 +371,19 @@ function instanceQuery(date: string): Record<string, string> {
  * Find the sitting that has an occurrence on `date`. Read under the edit API
  * version so recurring/rrule fields are present for the one-off guard.
  */
-export async function findMealSitting(sittingId: string, date: string): Promise<MealSittingResource | null> {
-  assertSittingId(sittingId);
+export async function listMealSittingsOn(date: string): Promise<MealSittingResource[]> {
   assertIsoDate(date);
   const response = await getClient().request<SittingEnvelope>("/api/frames/{frameId}/meals/sittings", {
     method: "GET",
     params: instanceQuery(date),
     apiVersion: MEAL_EDIT_API_VERSION,
   });
-  return (response.data ?? []).find((s) => s.id === sittingId && s.attributes.instances?.includes(date)) ?? null;
+  return (response.data ?? []).filter((s) => s.attributes.instances?.includes(date));
+}
+
+export async function findMealSitting(sittingId: string, date: string): Promise<MealSittingResource | null> {
+  assertSittingId(sittingId);
+  return (await listMealSittingsOn(date)).find((s) => s.id === sittingId) ?? null;
 }
 
 export type MealKind = "one-off" | "series" | "detached";
@@ -454,6 +462,11 @@ export interface UpdateMealSittingOptions {
   scope?: MealEditScope;
   /** For scope "all": the series' original start date, from findSeriesStart. */
   seriesStart?: string;
+  /**
+   * Allow editing an occurrence that was edited on its own (captured 2026-11-19: PATCH with
+   * apply_to=one and rrule null, same id back). Off by default so the MCP tool keeps refusing.
+   */
+  allowDetached?: boolean;
 }
 
 export interface MealUpdateResult {
@@ -490,6 +503,9 @@ export async function updateMealSitting(options: UpdateMealSittingOptions): Prom
       }
       bodyDate = assertIsoDate(options.seriesStart);
     }
+  } else if (kind === "detached" && options.allowDetached) {
+    if (target !== date) throw new Error("Moving an occurrence that was edited on its own to another day is not supported here; use the Skylight app.");
+    scope = "one";
   } else {
     assertOneOff(existing);
   }
@@ -514,6 +530,7 @@ export async function updateMealSitting(options: UpdateMealSittingOptions): Prom
     `/api/frames/{frameId}/meals/sittings/${assertSittingId(existing.id)}/instances/${date}`,
     { method: "PATCH", body: payload, params, apiVersion: MEAL_EDIT_API_VERSION }
   );
+  if (kind === "detached") return { sittingId: existing.id };
   if (scope === "one" || scope === "future") {
     const moved = (response.data ?? []).find((x) => x.id !== existing.id && x.attributes.instances?.includes(date));
     return { sittingId: moved?.id ?? null };
@@ -531,24 +548,27 @@ export async function updateMealSitting(options: UpdateMealSittingOptions): Prom
 export async function deleteMealSitting(
   existing: MealSittingResource,
   date: string,
-  scope: MealDeleteScope = "one"
+  scope: MealDeleteScope = "one",
+  allowDetached = false
 ): Promise<boolean> {
   assertIsoDate(date);
   const id = assertSittingId(existing.id);
   const kind = mealKind(existing);
-  if (kind === "detached") {
+  if (kind === "detached" && !allowDetached) {
     throw new Error(
       "This occurrence was edited on its own and is detached from its series. Deleting it is not supported here; use the Skylight app."
     );
   }
   const params = instanceQuery(date);
+  // A detached occurrence is deleted with apply_to=one (captured 2026-11-19), as the app does.
   if (kind === "series") params.apply_to = scope;
+  else if (kind === "detached") params.apply_to = "one";
   const response = await getClient().request<SittingEnvelope>(
     `/api/frames/{frameId}/meals/sittings/${id}/instances/${date}`,
     { method: "DELETE", params, apiVersion: MEAL_EDIT_API_VERSION }
   );
   const deleted = (response?.meta?.deleted_sitting_ids ?? []).map(String).includes(id);
-  if (kind === "one-off" || scope === "all") return deleted;
+  if (kind === "one-off" || kind === "detached" || scope === "all") return deleted;
   // one / future leave the series in place: it is returned without the date.
   const left = (response.data ?? []).find((s) => s.id === id);
   return !!left && !(left.attributes.instances ?? []).includes(date);

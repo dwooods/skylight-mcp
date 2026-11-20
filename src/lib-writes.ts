@@ -33,6 +33,7 @@ export type WriteErrorCode =
   | "unknown_label"
   | "label_not_assignable"
   | "unknown_calendar"
+  | "unknown_meal_category"
   | "calendar_not_writable"
   | "unsupported"
   | "invalid_repeat"
@@ -329,7 +330,7 @@ export async function planCreate(input: unknown, timeZone: string): Promise<Crea
 }
 
 /** Map anything the write itself threw to the library's own error, never Skylight's text. Sign-in errors pass through. */
-function mapWriteFailure(error: unknown): unknown {
+export function mapWriteFailure(error: unknown): unknown {
   const e = error as { name?: string; statusCode?: number } | null;
   if (e && (e.name === "AuthenticationError" || e.name === "CredentialSaveError")) return error;
   const status = typeof e?.statusCode === "number" ? e.statusCode : undefined;
@@ -408,7 +409,7 @@ export async function commitCreate(
 // ---------------------------------------------------------------------------------------------
 
 /** FNV-1a, twice with different seeds: a stable 16-hex fingerprint with no crypto (runs in Workers). */
-function fnv(text: string, seed: number): string {
+export function fnv(text: string, seed: number): string {
   let h = seed >>> 0;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);
