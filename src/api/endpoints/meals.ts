@@ -255,6 +255,10 @@ export interface CreateMealSittingOptions {
   repeat?: "weekly";
   /** Profile (category) ids the meal is for. Empty or missing: unassigned. Sends the app's whole form under MEAL_EDIT_API_VERSION. */
   profileIds?: string[];
+  /** The "Instructions or ingredients" text. Sends the app's whole form under MEAL_EDIT_API_VERSION. */
+  description?: string;
+  /** The meal's note. Sends the app's whole form under MEAL_EDIT_API_VERSION. */
+  note?: string;
 }
 
 const WEEKDAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;
@@ -290,15 +294,15 @@ export async function createMealSitting(
   }
 
   const profileIds = [...new Set(options.profileIds ?? [])];
-  if (options.repeat === "weekly" || profileIds.length > 0) {
+  if (options.repeat === "weekly" || profileIds.length > 0 || options.description || options.note) {
     // A repeating or assigned create sends the web app's whole form (repeat captured 2026-11-01,
     // assignment 2026-11-12 under API version 2026-10-15). Not verified live from this code path.
     for (const id of profileIds) if (!/^\d{1,12}$/.test(id)) throw new Error("Profile IDs must be numeric.");
     const form = {
       date: options.date,
       summary: options.summary ?? "",
-      description: "",
-      note: "",
+      description: options.description ?? "",
+      note: options.note ?? "",
       meal_category_id: options.mealCategoryId,
       meal_recipe_id: options.recipeId ?? null,
       profile_ids: profileIds,
@@ -367,15 +371,19 @@ function instanceQuery(date: string): Record<string, string> {
  * Find the sitting that has an occurrence on `date`. Read under the edit API
  * version so recurring/rrule fields are present for the one-off guard.
  */
-export async function findMealSitting(sittingId: string, date: string): Promise<MealSittingResource | null> {
-  assertSittingId(sittingId);
+export async function listMealSittingsOn(date: string): Promise<MealSittingResource[]> {
   assertIsoDate(date);
   const response = await getClient().request<SittingEnvelope>("/api/frames/{frameId}/meals/sittings", {
     method: "GET",
     params: instanceQuery(date),
     apiVersion: MEAL_EDIT_API_VERSION,
   });
-  return (response.data ?? []).find((s) => s.id === sittingId && s.attributes.instances?.includes(date)) ?? null;
+  return (response.data ?? []).filter((s) => s.attributes.instances?.includes(date));
+}
+
+export async function findMealSitting(sittingId: string, date: string): Promise<MealSittingResource | null> {
+  assertSittingId(sittingId);
+  return (await listMealSittingsOn(date)).find((s) => s.id === sittingId) ?? null;
 }
 
 export type MealKind = "one-off" | "series" | "detached";
