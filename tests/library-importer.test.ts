@@ -129,7 +129,7 @@ describe("library entry, from the importer's side (packed package)", () => {
       profiles: ["list"],
       labels: ["list"],
       chores: ["list"],
-      meals: ["categories", "recipes", "sittings"],
+      meals: ["categories", "create", "delete", "previewCreate", "previewDelete", "previewUpdate", "recipes", "sittings", "update"],
       lists: ["items", "list"],
     });
   });
@@ -1073,5 +1073,216 @@ describe("library entry: meal reads (description, note, people, version)", () =>
     expect(v(sitting({}, { meal_category: { data: { id: "4", type: "meal_category" } } }))).not.toBe(base);
     expect(v(sitting({ instances: ["2037-03-03"] }))).toBe(base);
     expect(v(sitting({}, {}, "6"))).not.toBe(base);
+  });
+});
+
+describe("library meal writes: create, update, delete (2026-11-19)", { timeout: 30_000 }, () => {
+  const DAY = "2037-03-03";
+  const sitting = (over: Record<string, unknown> = {}, rel: Record<string, unknown> = {}, id = "5") => ({
+    id,
+    type: "meal_sitting",
+    attributes: { summary: "Tacos", instances: [DAY], recurring: false, rrule: null, description: "Brown the beef.", note: "Meatless night.", ...over },
+    relationships: { meal_category: { data: { id: "3", type: "meal_category" } }, meal_recipe: { data: null }, profiles: { data: [{ id: "11", type: "category" }] }, ...rel },
+  });
+  const series = (over: Record<string, unknown> = {}, id = "5") =>
+    sitting({ recurring: true, rrule: "FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU", instances: [DAY, "2037-03-10"], ...over }, {}, id);
+  const detached = () => sitting({ recurring: true, rrule: null });
+  const seq = (...lists: unknown[][]) => ({ __sequence: lists.map((data) => ({ data })) });
+  const fx = (sittings: unknown, extra: Record<string, unknown> = {}) => fixtures({ "/meals/sittings": sittings, ...extra });
+  const writes = (calls: Call[]) => calls.filter((c) => c.method !== "GET");
+  const pathOf = (c: Call) => new URL(c.url).pathname;
+  const queryOf = (c: Call) => Object.fromEntries(new URL(c.url).searchParams);
+  const attempt = (expr: string) => `try { return { ok: true, value: await ${expr} }; } catch (e) { return { ok: false, name: e.name, code: e.code, ids: e.ids, eventId: e.eventId, message: String(e.message) }; }`;
+  /** The version a read hands out for this sitting. */
+  const versionOf = (s: unknown): string =>
+    ((runImporter(`${make}\nreturn await sky.meals.sittings({ from: "${DAY}", to: "2037-03-10" });`, fx({ data: [s] })).out as Array<{ version: string }>)[0]!.version);
+  const ref = (s: unknown) => `id: "5", date: "${DAY}", version: "${versionOf(s)}"`;
+  const run = (body: string, sittings: unknown, extra: Record<string, unknown> = {}) => runImporter(`${make}\n${body}`, fx(sittings, extra));
+
+  it("W1. create: the preview names category and people; create sends the whole form with description and note, reads back, and returns the meal", () => {
+    const input = { title: "Tacos", date: DAY, category: "3", description: "Brown the beef.", note: "Meatless night.", profileIds: ["11"] };
+    const stored = sitting();
+    const { out, calls } = run(
+      `const p = await sky.meals.previewCreate(${JSON.stringify(input)});\nconst m = await sky.meals.create(${JSON.stringify(input)});\nreturn { p, m };`,
+      { data: [stored] },
+      { "POST /meals/sittings": { data: [stored] } }
+    );
+    const o = out as { p: Record<string, unknown>; m: Record<string, unknown> };
+    expect(o.p).toMatchObject({ action: "create", title: "Tacos", date: DAY, category: { id: "3", name: "Dinner" }, description: "Brown the beef.", note: "Meatless night.", profileIds: ["11"], profiles: ["Alex"], repeat: null, warnings: [] });
+    const w = writes(calls);
+    expect(w).toHaveLength(1);
+    expect(JSON.parse(w[0]!.body!)).toMatchObject({ date: DAY, summary: "Tacos", description: "Brown the beef.", note: "Meatless night.", meal_category_id: "3", profile_ids: ["11"], rrule: null });
+    expect(o.m).toMatchObject({ id: "5", title: "Tacos", category: "Dinner", note: "Meatless night.", profiles: ["Alex"], detached: false });
+  });
+
+  it("W2. bad input is refused with a stable code and nothing is written", () => {
+    const base = { title: "Tacos", date: DAY, category: "3" };
+    const { out, calls } = run(
+      `const r = {};
+      for (const [k, v] of Object.entries({
+        category: { ...${JSON.stringify(base)}, category: "999" },
+        profile: { ...${JSON.stringify(base)}, profileIds: ["777"] },
+        repeat: { ...${JSON.stringify(base)}, repeat: "daily" },
+        placeholder: { ...${JSON.stringify(base)}, note: "(recipe URL needed)" },
+        key: { ...${JSON.stringify(base)}, recipeId: "1" },
+        title: { ...${JSON.stringify(base)}, title: "  " },
+        date: { ...${JSON.stringify(base)}, date: "2037-02-30" },
+      })) { r[k] = await (async () => { ${attempt("sky.meals.create(v)")} })(); }
+      return r;`,
+      { data: [] }
+    );
+    const o = out as Record<string, { ok: boolean; code: string; ids?: string[] }>;
+    expect(Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v.code]))).toEqual({
+      category: "unknown_meal_category", profile: "unknown_profile", repeat: "invalid_repeat", placeholder: "bad_input", key: "bad_input", title: "invalid_title", date: "bad_input",
+    });
+    expect(o.category!.ids).toEqual(["999"]);
+    expect(writes(calls)).toHaveLength(0);
+  });
+
+  it("W3. update a one-off: the PATCH carries the whole form with only the note changed and no scope; the stored meal comes back", () => {
+    const before = sitting();
+    const after = sitting({ note: "Taco Tuesday." });
+    const v = versionOf(before);
+    const { out, calls } = run(
+      `const m = await sky.meals.update({ id: "5", date: "${DAY}", version: "${v}", changes: { note: "Taco Tuesday." } }); return m;`,
+      seq([before], [after]),
+      { ["PATCH /instances/" + DAY]: { data: [after] } }
+    );
+    expect(out).toMatchObject({ id: "5", note: "Taco Tuesday.", title: "Tacos", description: "Brown the beef.", profileIds: ["11"] });
+    const w = writes(calls);
+    expect(w).toHaveLength(1);
+    expect(w[0]!.method).toBe("PATCH");
+    expect(pathOf(w[0]!)).toBe(`/api/frames/123/meals/sittings/5/instances/${DAY}`);
+    expect(queryOf(w[0]!).apply_to).toBeUndefined();
+    expect(JSON.parse(w[0]!.body!)).toMatchObject({ date: DAY, summary: "Tacos", note: "Taco Tuesday.", description: "Brown the beef.", meal_category_id: "3", profile_ids: ["11"], rrule: null });
+  });
+
+  it("W4. a stale version is refused, an empty or unchanged edit is refused, and none of them write", () => {
+    const s = sitting();
+    const { out, calls } = run(
+      `const r = {};
+      r.stale = await (async () => { ${attempt(`sky.meals.update({ id: "5", date: "${DAY}", version: "0000000000000000", changes: { note: "x" } })`)} })();
+      r.empty = await (async () => { ${attempt(`sky.meals.update({ ${ref(s)}, changes: {} })`)} })();
+      r.same = await (async () => { ${attempt(`sky.meals.update({ ${ref(s)}, changes: { note: "Meatless night." } })`)} })();
+      r.gone = await (async () => { ${attempt(`sky.meals.update({ id: "9", date: "${DAY}", version: "x", changes: { note: "x" } })`)} })();
+      return r;`,
+      { data: [s] }
+    );
+    const o = out as Record<string, { code: string }>;
+    expect(Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v.code]))).toEqual({ stale: "stale", empty: "bad_input", same: "bad_input", gone: "not_found" });
+    expect(writes(calls)).toHaveLength(0);
+  });
+
+  it("W5. a series: scope is required; one is unsupported; future sends apply_to=future and returns the new id; all sends apply_to=all with the series start as the body date", () => {
+    const s = series();
+    const r0 = run(
+      `const r = {};
+      r.none = await (async () => { ${attempt(`sky.meals.update({ ${ref(s)}, changes: { note: "x" } })`)} })();
+      r.one = await (async () => { ${attempt(`sky.meals.update({ ${ref(s)}, scope: "one", changes: { note: "x" } })`)} })();
+      r.move = await (async () => { ${attempt(`sky.meals.update({ ${ref(s)}, scope: "future", changes: { date: "2037-03-04" } })`)} })();
+      return r;`,
+      { data: [s] }
+    );
+    const o0 = r0.out as Record<string, { code: string }>;
+    expect(Object.fromEntries(Object.entries(o0).map(([k, v]) => [k, v.code]))).toEqual({ none: "scope_required", one: "unsupported", move: "unsupported" });
+    expect(writes(r0.calls)).toHaveLength(0);
+
+    const moved = series({ note: "Fresh.", instances: [DAY, "2037-03-10"] }, "55");
+    const fut = run(
+      `return await sky.meals.update({ ${ref(s)}, scope: "future", changes: { note: "Fresh." } });`,
+      seq([s], [moved]),
+      { ["PATCH /instances/" + DAY]: { data: [sitting({ instances: ["2037-02-24"], recurring: true, rrule: "FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU" }), moved] } }
+    );
+    expect(fut.out).toMatchObject({ id: "55", note: "Fresh." });
+    expect(queryOf(writes(fut.calls)[0]!).apply_to).toBe("future");
+
+    const all = series({ note: "Fresh." });
+    const a = run(
+      `return await sky.meals.update({ ${ref(s)}, scope: "all", changes: { note: "Fresh." } });`,
+      seq([s], [s], [all]),
+      { ["PATCH /instances/" + DAY]: { data: [all] } }
+    );
+    expect(a.out).toMatchObject({ id: "5", note: "Fresh." });
+    const w = writes(a.calls);
+    expect(queryOf(w[0]!).apply_to).toBe("all");
+    expect(JSON.parse(w[0]!.body!).date).toBe(DAY);
+    expect(JSON.parse(w[0]!.body!).rrule).toBe("FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU");
+  });
+
+  it("W6. a one-off with a scope is refused; an occurrence edited on its own can be neither changed nor deleted here", () => {
+    const one = sitting();
+    const d = detached();
+    const a = run(`${attempt(`sky.meals.update({ ${ref(one)}, scope: "all", changes: { note: "x" } })`)}`, { data: [one] });
+    expect((a.out as { code: string }).code).toBe("scope_not_allowed");
+    const b = run(`const r = {};
+      r.update = await (async () => { ${attempt(`sky.meals.update({ ${ref(d)}, changes: { note: "x" } })`)} })();
+      r.del = await (async () => { ${attempt(`sky.meals.delete({ ${ref(d)} })`)} })();
+      r.delScope = await (async () => { ${attempt(`sky.meals.delete({ ${ref(d)}, scope: "one" })`)} })();
+      return r;`, { data: [d] });
+    const o = b.out as Record<string, { code: string }>;
+    expect(Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v.code]))).toEqual({ update: "unsupported", del: "unsupported", delScope: "unsupported" });
+    expect(writes(a.calls)).toHaveLength(0);
+    expect(writes(b.calls)).toHaveLength(0);
+  });
+
+  it("W7. delete a one-off: preview first, then a DELETE with no scope, read back until it is gone", () => {
+    const s = sitting();
+    const { out, calls } = run(
+      `const p = await sky.meals.previewDelete({ ${ref(s)} });\nconst d = await sky.meals.delete({ ${ref(s)} });\nreturn { p, d };`,
+      seq([s], [s], [s], []),
+      { ["DELETE /instances/" + DAY]: { data: [], meta: { deleted_sitting_ids: [5] } } }
+    );
+    const o = out as { p: { action: string; scope: unknown; effect: string; meal: { id: string } }; d: unknown };
+    expect(o.p).toMatchObject({ action: "delete", scope: null, meal: { id: "5" } });
+    expect(o.p.effect).toBe(`"Tacos" on ${DAY}`);
+    expect(o.d).toEqual({ deleted: true, id: "5", scope: null });
+    const w = writes(calls);
+    expect(w).toHaveLength(1);
+    expect(w[0]!.method).toBe("DELETE");
+    expect(queryOf(w[0]!).apply_to).toBeUndefined();
+  });
+
+  it("W8. delete a series: scope is required; one, future and all each send their apply_to", () => {
+    const s = series();
+    const none = run(attempt(`sky.meals.delete({ ${ref(s)} })`), { data: [s] });
+    expect((none.out as { code: string }).code).toBe("scope_required");
+    expect(writes(none.calls)).toHaveLength(0);
+    for (const scope of ["one", "future", "all"]) {
+      const r = run(
+        `return await sky.meals.delete({ ${ref(s)}, scope: "${scope}" });`,
+        seq([s], []),
+        { ["DELETE /instances/" + DAY]: { data: [], meta: { deleted_sitting_ids: scope === "all" ? [5] : [] } } }
+      );
+      expect(r.out).toEqual({ deleted: true, id: "5", scope });
+      expect(queryOf(writes(r.calls)[0]!).apply_to).toBe(scope);
+    }
+  });
+
+  it("W9. a write Skylight answers with an error reports skylight_refused without its text; a network failure reports outcome_unknown; a read-back that disagrees reports not_confirmed", () => {
+    const s = sitting();
+    const body = (key: string, fixture: unknown, seqs: unknown) =>
+      run(attempt(`sky.meals.update({ ${ref(s)}, changes: { note: "Taco Tuesday." } })`), seqs, { [key]: fixture });
+    const refused = body("PATCH /instances/" + DAY, { __status: 422, errors: [{ detail: "SECRET-TEXT-FROM-SKYLIGHT" }] }, { data: [s] });
+    const r = refused.out as { code: string; message: string };
+    expect(r.code).toBe("skylight_refused");
+    expect(r.message).not.toContain("SECRET-TEXT");
+    const net = body("PATCH /instances/" + DAY, { __throw: true }, { data: [s] });
+    expect((net.out as { code: string }).code).toBe("outcome_unknown");
+    const ghost = body("PATCH /instances/" + DAY, { data: [s] }, { data: [s] });
+    const g = ghost.out as { code: string; eventId?: string };
+    expect(g.code).toBe("not_confirmed");
+    expect(g.eventId).toBe("5");
+  });
+
+  it("W10. create and delete confirm by reading back: a meal stored with other fields, or one that is still there after a delete, is not_confirmed", () => {
+    const input = { title: "Tacos", date: DAY, category: "3", note: "Meatless night." };
+    const other = sitting({ note: "Something else." });
+    const c = run(attempt(`sky.meals.create(${JSON.stringify(input)})`), { data: [other] }, { "POST /meals/sittings": { data: [other] } });
+    expect(c.out).toMatchObject({ ok: false, code: "not_confirmed", eventId: "5" });
+    const missing = run(attempt(`sky.meals.create(${JSON.stringify(input)})`), { data: [] }, { "POST /meals/sittings": { data: [sitting()] } });
+    expect(missing.out).toMatchObject({ ok: false, code: "not_confirmed", eventId: "5" });
+    const s = sitting();
+    const d = run(attempt(`sky.meals.delete({ ${ref(s)} })`), { data: [s] }, { ["DELETE /instances/" + DAY]: { data: [], meta: { deleted_sitting_ids: [5] } } });
+    expect(d.out).toMatchObject({ ok: false, code: "not_confirmed", eventId: "5" });
   });
 });

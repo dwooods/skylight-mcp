@@ -458,7 +458,7 @@ export async function commitUpdateMeal(input: unknown): Promise<MealSittingResou
   const pick = (list: MealSittingResource[]): MealSittingResource | undefined =>
     list.find((s) => {
       if (!matchesExpect(s, plan)) return false;
-      if (plan.scope === "future") return result.sittingId ? s.id === result.sittingId : s.id !== old.id || true;
+      if (plan.scope === "future") return result.sittingId ? s.id === result.sittingId : true;
       return s.id === old.id;
     });
   const back = await readBackUntil(() => listMealSittingsOn(plan.newDate), (list) => pick(list) !== undefined);

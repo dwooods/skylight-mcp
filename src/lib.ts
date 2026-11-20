@@ -28,8 +28,22 @@ import { getCalendarEvents, getSourceCalendars } from "./api/endpoints/calendar.
 import { getCategories } from "./api/endpoints/categories.js";
 import { getChores } from "./api/endpoints/chores.js";
 import { getListWithItems, getLists } from "./api/endpoints/lists.js";
-import { getMealCategories, getMealSittingsWithProfiles, getRecipes, mealCategoryName, mealKind } from "./api/endpoints/meals.js";
+import { getMealCategories, getMealSittingsWithProfiles, getRecipes, mealCategoryName, mealKind, type MealSittingResource } from "./api/endpoints/meals.js";
 import { mealVersion } from "./lib-meals.js";
+import {
+  commitCreateMeal,
+  commitDeleteMeal,
+  commitUpdateMeal,
+  planCreateMeal,
+  planDeleteMeal,
+  planUpdateMeal,
+  type CreateMealInput,
+  type CreateMealPreview,
+  type DeleteMealInput,
+  type DeleteMealPreview,
+  type UpdateMealInput,
+  type UpdateMealPreview,
+} from "./lib-meal-writes.js";
 import { isChoreDone, parseOccurrenceId } from "./api/endpoints/chores.js";
 import { addDays } from "./utils/schedule.js";
 import { redactFeedUrl } from "./utils/redact.js";
@@ -62,6 +76,15 @@ export type {
   UpdatePreview,
   WriteErrorCode,
 } from "./lib-writes.js";
+export type {
+  CreateMealInput,
+  CreateMealPreview,
+  DeleteMealInput,
+  DeleteMealPreview,
+  MealRef,
+  UpdateMealInput,
+  UpdateMealPreview,
+} from "./lib-meal-writes.js";
 export type { SeriesInput } from "./utils/series.js";
 
 export type { CredentialStore };
@@ -233,6 +256,18 @@ export interface Skylight {
     sittings(range: { from: string; to: string }): Promise<MealSittingDto[]>;
     recipes(): Promise<RecipeDto[]>;
     categories(): Promise<MealCategoryDto[]>;
+    /** Check a new meal and return exactly what `create` would write. Changes nothing. */
+    previewCreate(input: CreateMealInput): Promise<CreateMealPreview>;
+    /** Re-run the same check, write, read back. Resolves with the meal as stored; throws SkylightWriteError otherwise. Needs Skylight Plus. */
+    create(input: CreateMealInput): Promise<MealSittingDto>;
+    /** Check a change to one meal and show what it reaches. Changes nothing. */
+    previewUpdate(input: UpdateMealInput): Promise<UpdateMealPreview<MealSittingDto>>;
+    /** Re-run the same check (including the version), write, read back. Resolves with the meal under its id after the change (scope "future" gives the later days a new id). */
+    update(input: UpdateMealInput): Promise<MealSittingDto>;
+    /** Check a delete and show what it reaches. Changes nothing. */
+    previewDelete(input: DeleteMealInput): Promise<DeleteMealPreview<MealSittingDto>>;
+    /** Re-run the same check (including the version), delete, read back until it is gone from that day. */
+    delete(input: DeleteMealInput): Promise<{ deleted: true; id: string; scope: "one" | "future" | "all" | null }>;
   };
   lists: {
     list(): Promise<ListDto[]>;
@@ -307,6 +342,43 @@ function categoryIds(event: CalendarEventResource): string[] {
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
+
+function toMeal(s: MealSittingResource, names: Map<string, string>, profileLabels: Map<string, string>, keep: (date: string) => boolean): MealSittingDto {
+  const a = s.attributes;
+  const dates = a.instances?.length ? a.instances : a.date ? [a.date] : [];
+  const cid = s.relationships?.meal_category?.data?.id;
+  const rid = s.relationships?.meal_recipe?.data?.id;
+  const profileIds = (s.relationships?.profiles?.data ?? []).map((p) => String(p.id));
+  return {
+    id: String(s.id),
+    dates: dates.filter((d) => DATE.test(d) && keep(d)),
+    title: str(a.summary),
+    category: cid ? (names.get(String(cid)) ?? null) : null,
+    recipeId: rid ? String(rid) : null,
+    recurring: a.recurring === true || Boolean(a.rrule),
+    description: str(a.description),
+    note: str(a.note),
+    // An email-shaped label is replaced, as for events; an id with no label reads "Someone".
+    profiles: profileIds.map((id) => {
+      const label = profileLabels.get(id);
+      return label === undefined ? "Someone" : EMAIL.test(label) ? "Calendar" : label;
+    }),
+    profileIds,
+    detached: mealKind(s) === "detached",
+    version: mealVersion(s),
+  };
+}
+
+/** A meal from a write, with category and people named. Days are the ones the sitting reports. */
+async function withMealNames(s: MealSittingResource): Promise<MealSittingDto> {
+  const [categories, all] = await Promise.all([getMealCategories(), getCategories()]);
+  const labels = new Map<string, string>();
+  for (const c of all) {
+    const label = (c.attributes as { label?: unknown }).label;
+    if (c.attributes.linked_to_profile === true && typeof label === "string" && label.trim()) labels.set(String(c.id), label.trim());
+  }
+  return toMeal(s, new Map(categories.map((c) => [String(c.id), mealCategoryName(c)])), labels, () => true);
+}
 
 /** A category's name as it leaves the library: an email-shaped name is replaced, so no address escapes. */
 function categoryName(c: CategoryResource | undefined): string | null {
@@ -502,32 +574,22 @@ export function createSkylight(options: CreateSkylightOptions): Skylight {
             getMealCategories(),
           ]);
           const names = new Map(categories.map((c) => [String(c.id), mealCategoryName(c)]));
-          return sittings.map((s) => {
-            const a = s.attributes;
-            const dates = a.instances?.length ? a.instances : a.date ? [a.date] : [];
-            const cid = s.relationships?.meal_category?.data?.id;
-            const rid = s.relationships?.meal_recipe?.data?.id;
-            const profileIds = (s.relationships?.profiles?.data ?? []).map((p) => String(p.id));
-            return {
-              id: String(s.id),
-              dates: dates.filter((d) => DATE.test(d) && d >= from && d <= to),
-              title: str(a.summary),
-              category: cid ? (names.get(String(cid)) ?? null) : null,
-              recipeId: rid ? String(rid) : null,
-              recurring: a.recurring === true || Boolean(a.rrule),
-              description: str(a.description),
-              note: str(a.note),
-              // An email-shaped label is replaced, as for events; an id with no label reads "Someone".
-              profiles: profileIds.map((id) => {
-                const label = profileLabels.get(id);
-                return label === undefined ? "Someone" : EMAIL.test(label) ? "Calendar" : label;
-              }),
-              profileIds,
-              detached: mealKind(s) === "detached",
-              version: mealVersion(s),
-            };
-          });
+          return sittings.map((s) => toMeal(s, names, profileLabels, (d) => d >= from && d <= to));
         }),
+      previewCreate: (input) => run(async () => (await planCreateMeal(input)).preview),
+      create: (input) => run(async () => withMealNames(await commitCreateMeal(input))),
+      previewUpdate: (input) =>
+        run(async () => {
+          const plan = await planUpdateMeal(input);
+          return { ...plan.preview, meal: await withMealNames(plan.found.sitting) };
+        }),
+      update: (input) => run(async () => withMealNames(await commitUpdateMeal(input))),
+      previewDelete: (input) =>
+        run(async () => {
+          const plan = await planDeleteMeal(input);
+          return { action: "delete" as const, meal: await withMealNames(plan.found.sitting), scope: plan.scope, effect: plan.effect };
+        }),
+      delete: (input) => run(() => commitDeleteMeal(input)),
       recipes: () =>
         run(async () => (await getRecipes()).map((r) => ({ id: String(r.id), title: str(r.attributes.summary) }))),
       categories: () =>
