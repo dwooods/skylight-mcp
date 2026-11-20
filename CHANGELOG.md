@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.27.1] - 2026-11-20
+
+### Fixed
+- Library writes (events and meals): a read that failed after Skylight accepted the write (the read-back) threw the HTTP client's raw error, which has no stable `code` and could carry Skylight's response text, and left the importer unable to tell the write had landed. It is now `not_confirmed` with the id. Pre-existing since 1.23.0. Found by reading the code while answering Mantel; not seen in use.
+- Library writes: a read that failed before writing (in a preview or a commit's checks) also threw raw for events, and was labelled `outcome_unknown` for meals while its message said nothing was written. Both are now the new code `read_failed` ("nothing was written, safe to retry").
+- Library meal write errors no longer tell the importer to "read the calendar".
+
 ### Changed
+- Library writes: after `outcome_unknown` (a network or server error once the write was sent), the library reads back by itself with the usual retries. If the write shows up (create: exactly one new record that fits; update: the record as asked; delete: gone) the call resolves normally; otherwise it is still `outcome_unknown`, now meaning "not seen about two seconds later: probably not written, read before retrying". A create takes one extra read before writing, so an identical record already on that day is not taken for the new one. Suggested by Mantel.
+- Any other unexpected error during a commit is reported as `outcome_unknown`, never raw.
 - SECURITY.md: the library section no longer says the writes are calendar events only or that nothing deletes. It now names the meal writes, that both event and meal deletes exist behind a preview/commit pair with a `version` check, that the library has no allowlist or `confirm` flag (the importer's own user-facing yes is the gate), and that library meal writes reach detached meals the MCP tools still refuse.
 
 ## [1.27.0] - 2026-11-19

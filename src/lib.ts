@@ -49,6 +49,8 @@ import { addDays } from "./utils/schedule.js";
 import { redactFeedUrl } from "./utils/redact.js";
 import type { CalendarEventResource, CategoryResource, ChoreResource, SourceCalendarResource } from "./api/types.js";
 import {
+  afterWrite,
+  asRead,
   commitCreate,
   commitDelete,
   commitUpdate,
@@ -57,6 +59,7 @@ import {
   planDelete,
   planUpdate,
   sourceWritable,
+  writeError,
   type CreateEventInput,
   type CreatePreview,
   type DeleteEventInput,
@@ -472,6 +475,22 @@ export function createSkylight(options: CreateSkylightOptions): Skylight {
   // Quiet: no per-request trace lines in the importer's logs. Errors and warnings still print.
   const client = new SkylightClient(config, store, { quiet: true });
   const run = <T>(fn: () => Promise<T>): Promise<T> => runWithContext({ client, config }, fn);
+  // A preview only reads: any failure that is not the library's own is `read_failed` (nothing written).
+  const runRead = <T>(fn: () => Promise<T>): Promise<T> => run(() => asRead(fn));
+  // A commit maps every failure itself. Anything that still escapes is reported as an unknown
+  // outcome (read before retrying), never as Skylight's raw error.
+  const runCommit = <T>(fn: () => Promise<T>): Promise<T> =>
+    run(async () => {
+      try {
+        return await fn();
+      } catch (error) {
+        const name = (error as { name?: string } | null)?.name;
+        if (name === "SkylightWriteError" || name === "AuthenticationError" || name === "CredentialSaveError") throw error;
+        throw writeError("outcome_unknown", "An unexpected error came up during the write. It may or may not have been written: read before trying again.");
+      }
+    });
+  const eventResult = (stored: CalendarEventResource) =>
+    afterWrite(String(stored.id), "the calendar", async () => toEvent(stored, new Map((await getCategories()).map((c) => [String(c.id), c]))));
 
   return {
     calendar: {
@@ -486,15 +505,10 @@ export function createSkylight(options: CreateSkylightOptions): Skylight {
           return events.map((e) => toEvent(e, byId));
         }),
       sources: () => run(async () => (await getSourceCalendars()).map(toSource)),
-      previewCreate: (input) => run(async () => (await planCreate(input, config.timezone)).preview),
-      create: (input) =>
-        run(async () => {
-          const stored = await commitCreate(input, config.timezone, categoryIds);
-          const byId = new Map((await getCategories()).map((c) => [String(c.id), c]));
-          return toEvent(stored, byId);
-        }),
+      previewCreate: (input) => runRead(async () => (await planCreate(input, config.timezone)).preview),
+      create: (input) => runCommit(async () => eventResult(await commitCreate(input, config.timezone, categoryIds))),
       previewUpdate: (input) =>
-        run(async () => {
+        runRead(async () => {
           const plan = await planUpdate(input, config.timezone, categoryIds);
           const byId = new Map((await getCategories()).map((c) => [String(c.id), c]));
           return {
@@ -507,19 +521,14 @@ export function createSkylight(options: CreateSkylightOptions): Skylight {
             warnings: plan.found.google ? ["This event is on a Google calendar: the change reaches everyone who shares it."] : [],
           };
         }),
-      update: (input) =>
-        run(async () => {
-          const stored = await commitUpdate(input, config.timezone, categoryIds);
-          const byId = new Map((await getCategories()).map((c) => [String(c.id), c]));
-          return toEvent(stored, byId);
-        }),
+      update: (input) => runCommit(async () => eventResult(await commitUpdate(input, config.timezone, categoryIds))),
       previewDelete: (input) =>
-        run(async () => {
+        runRead(async () => {
           const plan = await planDelete(input, config.timezone, categoryIds);
           const byId = new Map((await getCategories()).map((c) => [String(c.id), c]));
           return { action: "delete" as const, event: toEvent(plan.found.event, byId), scope: plan.scope, effect: plan.effect, google: plan.found.google };
         }),
-      delete: (input) => run(() => commitDelete(input, config.timezone, categoryIds)),
+      delete: (input) => runCommit(() => commitDelete(input, config.timezone, categoryIds)),
     },
     profiles: {
       list: () =>
@@ -576,20 +585,28 @@ export function createSkylight(options: CreateSkylightOptions): Skylight {
           const names = new Map(categories.map((c) => [String(c.id), mealCategoryName(c)]));
           return sittings.map((s) => toMeal(s, names, profileLabels, (d) => d >= from && d <= to));
         }),
-      previewCreate: (input) => run(async () => (await planCreateMeal(input)).preview),
-      create: (input) => run(async () => withMealNames(await commitCreateMeal(input))),
+      previewCreate: (input) => runRead(async () => (await planCreateMeal(input)).preview),
+      create: (input) =>
+        runCommit(async () => {
+          const stored = await commitCreateMeal(input);
+          return afterWrite(stored.id, "the meals", () => withMealNames(stored));
+        }),
       previewUpdate: (input) =>
-        run(async () => {
+        runRead(async () => {
           const plan = await planUpdateMeal(input);
           return { ...plan.preview, meal: await withMealNames(plan.found.sitting) };
         }),
-      update: (input) => run(async () => withMealNames(await commitUpdateMeal(input))),
+      update: (input) =>
+        runCommit(async () => {
+          const stored = await commitUpdateMeal(input);
+          return afterWrite(stored.id, "the meals", () => withMealNames(stored));
+        }),
       previewDelete: (input) =>
-        run(async () => {
+        runRead(async () => {
           const plan = await planDeleteMeal(input);
           return { action: "delete" as const, meal: await withMealNames(plan.found.sitting), scope: plan.scope, effect: plan.effect };
         }),
-      delete: (input) => run(() => commitDeleteMeal(input)),
+      delete: (input) => runCommit(() => commitDeleteMeal(input)),
       recipes: () =>
         run(async () => (await getRecipes()).map((r) => ({ id: String(r.id), title: str(r.attributes.summary) }))),
       categories: () =>
