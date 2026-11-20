@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- SECURITY.md: the library section no longer says the writes are calendar events only or that nothing deletes. It now names the meal writes, that both event and meal deletes exist behind a preview/commit pair with a `version` check, that the library has no allowlist or `confirm` flag (the importer's own user-facing yes is the gate), and that library meal writes reach detached meals the MCP tools still refuse.
+
 ## [1.27.0] - 2026-11-19
 
 ### Added
