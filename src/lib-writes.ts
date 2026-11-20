@@ -44,14 +44,15 @@ export type WriteErrorCode =
   | "scope_not_allowed"
   | "skylight_refused"
   | "outcome_unknown"
-  | "not_confirmed";
+  | "not_confirmed"
+  | "read_failed";
 
 export interface SkylightWriteError extends Error {
   name: "SkylightWriteError";
   code: WriteErrorCode;
   /** HTTP status, for `skylight_refused` only. */
   status?: number;
-  /** The id Skylight gave the event, for `not_confirmed` only. */
+  /** The id Skylight gave the record (event or meal), for `not_confirmed` only. */
   eventId?: string;
   /** The ids that were not accepted, for `unknown_profile`, `unknown_label` and `label_not_assignable`. */
   ids?: string[];
@@ -195,7 +196,12 @@ interface CreatePlan {
 }
 
 /** The one check behind previewCreate and create. Reads categories and calendars fresh every time. */
-export async function planCreate(input: unknown, timeZone: string): Promise<CreatePlan> {
+/** The one check behind previewCreate and create. It only reads; a failed read is `read_failed`. */
+export function planCreate(input: unknown, timeZone: string): Promise<CreatePlan> {
+  return asRead(() => planCreateInner(input, timeZone));
+}
+
+async function planCreateInner(input: unknown, timeZone: string): Promise<CreatePlan> {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw writeError("bad_input", "create needs an object of event fields.");
   const raw = input as Record<string, unknown>;
   for (const key of Object.keys(raw)) {
@@ -329,15 +335,72 @@ export async function planCreate(input: unknown, timeZone: string): Promise<Crea
   return { preview, body, startDate, endDate, startMs, endMs, categoryIds, source: target ? "google" : "skylight", freq };
 }
 
+function isPassThrough(error: unknown): boolean {
+  const name = (error as { name?: string } | null)?.name;
+  return name === "SkylightWriteError" || name === "AuthenticationError" || name === "CredentialSaveError";
+}
+
+/**
+ * A read that fails before anything is written (a plan, a pre-write snapshot). The library's own
+ * errors and sign-in errors pass through; anything else (a network error, a Skylight server error,
+ * whose message carries Skylight's response text) becomes `read_failed`: nothing was written.
+ */
+export function mapReadFailure(error: unknown): unknown {
+  if (isPassThrough(error)) return error;
+  return writeError("read_failed", "Skylight did not answer a read, so nothing was written. It is safe to try again.");
+}
+
+/** Run something that only reads (a plan or a preview) with its failures mapped by mapReadFailure. */
+export async function asRead<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    throw mapReadFailure(error);
+  }
+}
+
+/**
+ * A read made after the write was accepted. If it fails, the write stands: report `not_confirmed`
+ * with the id (never Skylight's text), so the importer reads before trying again.
+ */
+export async function afterWrite<T>(id: string, what: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if ((error as { name?: string } | null)?.name === "SkylightWriteError") throw error;
+    throw writeError("not_confirmed", `Skylight accepted the write, but reading it back failed. Read ${what} before trying again.`, { eventId: id });
+  }
+}
+
+/**
+ * After a write ended in `outcome_unknown`, read back (with the usual retries) to see whether it
+ * landed. `check` resolves with the stored result when it did, undefined when it did not show.
+ * Landed: resolve as a normal success. Not seen, or the check itself failed: `outcome_unknown`.
+ */
+export async function settleUnknown<T>(failure: unknown, what: string, check: () => Promise<T | undefined>): Promise<T> {
+  if ((failure as { code?: string } | null)?.code !== "outcome_unknown") throw failure;
+  let landed: T | undefined;
+  try {
+    landed = await check();
+  } catch {
+    throw failure;
+  }
+  if (landed !== undefined) return landed;
+  throw writeError(
+    "outcome_unknown",
+    `The write was sent but no answer came back (a network error or a Skylight server error), and reading back about two seconds later did not show it. It is probably not written, but Skylight's list can lag: read ${what} before trying again.`
+  );
+}
+
 /** Map anything the write itself threw to the library's own error, never Skylight's text. Sign-in errors pass through. */
-export function mapWriteFailure(error: unknown): unknown {
+export function mapWriteFailure(error: unknown, what = "the calendar"): unknown {
   const e = error as { name?: string; statusCode?: number } | null;
   if (e && (e.name === "AuthenticationError" || e.name === "CredentialSaveError")) return error;
   const status = typeof e?.statusCode === "number" ? e.statusCode : undefined;
   if (status !== undefined && status >= 400 && status < 500) {
     return writeError("skylight_refused", `Skylight refused the write (HTTP ${status}). Nothing was written.`, { status });
   }
-  return writeError("outcome_unknown", "The write was sent but no answer came back (a network error or a Skylight server error). It may or may not have been written: read the calendar before trying again.");
+  return writeError("outcome_unknown", `The write was sent but no answer came back (a network error or a Skylight server error). It may or may not have been written: read ${what} before trying again.`);
 }
 
 function sameText(stored: unknown, wanted: string | null): boolean {
@@ -375,17 +438,27 @@ export async function commitCreate(
   categoryIdsOf: (e: CalendarEventResource) => string[]
 ): Promise<CalendarEventResource> {
   const plan = await planCreate(input, timeZone);
+  const read = () => getCalendarEvents({ dateMin: plan.startDate, dateMax: plan.endDate, timezone: timeZone });
+  const base = (e: CalendarEventResource) => String(e.id).split("-")[0]!;
+  // What was already there, so a self-check after an unknown outcome can tell a new event from an old one.
+  const before = new Set((await asRead(read)).map(base));
   let created: CalendarEventResource;
   try {
     created = await createCalendarEvent(plan.body);
   } catch (error) {
-    throw mapWriteFailure(error);
+    return settleUnknown(mapWriteFailure(error), "the calendar", async () => {
+      const fresh = (list: CalendarEventResource[]) => list.filter((e) => !before.has(base(e)) && matchesPlan(e, plan, categoryIdsOf));
+      const back = await readBackUntil(read, (list) => fresh(list).length > 0);
+      const found = fresh(back.value);
+      // Exactly one new event (one series) that fits: that is the write. Two would be a guess.
+      if (new Set(found.map(base)).size !== 1) return undefined;
+      return [...found].sort((a, b) => String(a.attributes.starts_at).localeCompare(String(b.attributes.starts_at)))[0];
+    });
   }
   const id = created?.id !== undefined && created?.id !== null ? String(created.id) : "";
   if (!id) throw writeError("outcome_unknown", "Skylight accepted the write but did not say which event it created. Read the calendar before trying again.");
-  const back = await readBackUntil(
-    () => getCalendarEvents({ dateMin: plan.startDate, dateMax: plan.endDate, timezone: timeZone }),
-    (list) => list.some((e) => String(e.id) === id && matchesPlan(e, plan, categoryIdsOf))
+  const back = await afterWrite(id, "the calendar", () =>
+    readBackUntil(read, (list) => list.some((e) => String(e.id) === id && matchesPlan(e, plan, categoryIdsOf)))
   );
   const stored = back.value.find((e) => String(e.id) === id);
   if (!back.ok || !stored) {
@@ -547,7 +620,11 @@ interface UpdatePlan {
 }
 
 /** The one check behind previewUpdate and update. */
-export async function planUpdate(input: unknown, timeZone: string, categoryIdsOf: (e: CalendarEventResource) => string[]): Promise<UpdatePlan> {
+export function planUpdate(input: unknown, timeZone: string, categoryIdsOf: (e: CalendarEventResource) => string[]): Promise<UpdatePlan> {
+  return asRead(() => planUpdateInner(input, timeZone, categoryIdsOf));
+}
+
+async function planUpdateInner(input: unknown, timeZone: string, categoryIdsOf: (e: CalendarEventResource) => string[]): Promise<UpdatePlan> {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw writeError("bad_input", "update needs an object: id, date, version, changes.");
   const raw = input as Record<string, unknown>;
   const changesRaw = raw.changes;
@@ -701,10 +778,11 @@ function matchesExpect(event: CalendarEventResource, expect: UpdatePlan["expect"
 export async function commitUpdate(input: unknown, timeZone: string, categoryIdsOf: (e: CalendarEventResource) => string[]): Promise<CalendarEventResource> {
   const plan = await planUpdate(input, timeZone, categoryIdsOf);
   const id = String(plan.found.event.id);
+  let failure: unknown = null;
   try {
     await updateCalendarEvent(id, plan.body as never, plan.scope ?? undefined);
   } catch (error) {
-    throw mapWriteFailure(error);
+    failure = mapWriteFailure(error);
   }
   const key = seriesKeyOf(plan.found.event);
   const dates = [...new Set(plan.expect.readDates)].sort();
@@ -721,10 +799,10 @@ export async function commitUpdate(input: unknown, timeZone: string, categoryIds
     // Whole series: the occurrence on this date, same series.
     return list.find((e) => String(e.id).split("-")[0] === key.number && fits(e));
   };
-  const back = await readBackUntil(
-    () => getCalendarEvents({ dateMin: dates[0]!, dateMax: dates[dates.length - 1]!, timezone: timeZone }),
-    (list) => pick(list) !== undefined
-  );
+  const readBack = () =>
+    readBackUntil(() => getCalendarEvents({ dateMin: dates[0]!, dateMax: dates[dates.length - 1]!, timezone: timeZone }), (list) => pick(list) !== undefined);
+  if (failure) return settleUnknown(failure, "the calendar", async () => pick((await readBack()).value));
+  const back = await afterWrite(id, "the calendar", readBack);
   const stored = pick(back.value);
   if (!back.ok || !stored) {
     throw writeError("not_confirmed", "Skylight accepted the change but reading it back did not show it as asked. Read the calendar before trying again.", { eventId: id });
@@ -739,8 +817,12 @@ interface DeletePlan {
   date: string;
 }
 
-/** The one check behind previewDelete and delete. */
-export async function planDelete(input: unknown, timeZone: string, categoryIdsOf: (e: CalendarEventResource) => string[]): Promise<DeletePlan> {
+/** The one check behind previewDelete and delete. It only reads; a failed read is `read_failed`. */
+export function planDelete(input: unknown, timeZone: string, categoryIdsOf: (e: CalendarEventResource) => string[]): Promise<DeletePlan> {
+  return asRead(() => planDeleteInner(input, timeZone, categoryIdsOf));
+}
+
+async function planDeleteInner(input: unknown, timeZone: string, categoryIdsOf: (e: CalendarEventResource) => string[]): Promise<DeletePlan> {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw writeError("bad_input", "delete needs an object: id, date, version.");
   const raw = input as Record<string, unknown>;
   if (raw.scope !== undefined && raw.scope !== "one" && raw.scope !== "future" && raw.scope !== "all") {
@@ -772,11 +854,14 @@ export async function commitDelete(input: unknown, timeZone: string, categoryIds
     // An occurrence edited on its own is deleted by its own id with no scope, as the app does.
     await deleteCalendarEvent(id, plan.scope ?? undefined);
   } catch (error) {
-    throw mapWriteFailure(error);
+    const failure = mapWriteFailure(error);
+    return settleUnknown(failure, "the calendar", async () => {
+      const gone = await readBackUntil(() => getCalendarEvents({ dateMin: plan.date, dateMax: plan.date, timezone: timeZone }), (list) => !list.some((e) => String(e.id) === id));
+      return gone.ok ? { deleted: true as const, id, scope: plan.scope } : undefined;
+    });
   }
-  const back = await readBackUntil(
-    () => getCalendarEvents({ dateMin: plan.date, dateMax: plan.date, timezone: timeZone }),
-    (list) => !list.some((e) => String(e.id) === id)
+  const back = await afterWrite(id, "the calendar", () =>
+    readBackUntil(() => getCalendarEvents({ dateMin: plan.date, dateMax: plan.date, timezone: timeZone }), (list) => !list.some((e) => String(e.id) === id))
   );
   if (!back.ok) throw writeError("not_confirmed", "Skylight accepted the delete but the event still shows on reading it back. Read the calendar before trying again.", { eventId: id });
   return { deleted: true, id, scope: plan.scope };

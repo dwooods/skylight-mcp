@@ -545,6 +545,55 @@ describe("event create, stage 1 of library writes (2026-11-15)", () => {
     expect(dts).toMatch(/create\(input: CreateEventInput\): Promise<EventDto>/);
     expect(dts).toMatch(/writable: boolean/);
   });
+  // 2026-11-20 (Mantel's outcome_unknown proposal): failures around the write are told apart, never carry Skylight's text.
+  const SECRET = { __status: 500, errors: ["SKYLIGHT_SAYS_SECRET person.two@example.com"] };
+  const noLeak = (out: unknown) => {
+    expect(JSON.stringify(out)).not.toContain("SKYLIGHT_SAYS_SECRET");
+    expect(JSON.stringify(out)).not.toMatch(EMAIL);
+  };
+
+  it("R1. a create whose answer was lost but which landed resolves as created (the library reads back itself)", () => {
+    const r = runImporter(`${make}\n${tryCall(`sky.calendar.create(${JSON.stringify(input)})`)}`, fx({
+      "POST /calendar_events": { __throw: true },
+      "/calendar_events": { __sequence: [{ data: [] }, { data: [stored()] }] },
+    }));
+    expect(r.out).toMatchObject({ ok: true, value: { id: "5001", title: "Practice" } });
+    expect(posts(r.calls)).toHaveLength(1);
+  }, 30_000);
+
+  it("R2. a lost answer with no new event stays outcome_unknown, and an identical event that was already there is not mistaken for it", () => {
+    const none = runImporter(`${make}\n${tryCall(`sky.calendar.create(${JSON.stringify(input)})`)}`, fx({ "POST /calendar_events": { __throw: true }, "/calendar_events": { data: [] } }));
+    expect(none.out).toMatchObject({ ok: false, name: "SkylightWriteError", code: "outcome_unknown" });
+    const old = runImporter(`${make}\n${tryCall(`sky.calendar.create(${JSON.stringify(input)})`)}`, fx({ "POST /calendar_events": { __throw: true } }));
+    expect(old.out).toMatchObject({ ok: false, code: "outcome_unknown" });
+  }, 30_000);
+
+  it("R3. a read-back that fails after the write was accepted is not_confirmed with the id, without Skylight's text", () => {
+    const r = runImporter(`${make}\n${tryCall(`sky.calendar.create(${JSON.stringify(input)})`)}`, fx({ "/calendar_events": { __sequence: [{ data: [] }, SECRET] } }));
+    expect(r.out).toMatchObject({ ok: false, name: "SkylightWriteError", code: "not_confirmed", eventId: "5001" });
+    noLeak(r.out);
+  }, 30_000);
+
+  it("R4. a read that fails before the write is read_failed: nothing written, no Skylight text, for preview and commit", () => {
+    const r = runImporter(
+      `${make}\nconst a = await (async () => { ${tryCall(`sky.calendar.previewCreate(${JSON.stringify(input)})`)} })();\nconst b = await (async () => { ${tryCall(`sky.calendar.create(${JSON.stringify(input)})`)} })();\nreturn { a, b };`,
+      fx({ "/categories": SECRET })
+    );
+    const o = r.out as { a: unknown; b: unknown };
+    expect(o.a).toMatchObject({ ok: false, name: "SkylightWriteError", code: "read_failed" });
+    expect(o.b).toMatchObject({ ok: false, name: "SkylightWriteError", code: "read_failed" });
+    expect(posts(r.calls)).toEqual([]);
+    noLeak(r.out);
+  }, 30_000);
+
+  it("R5. a delete whose answer was lost but which landed resolves as deleted", () => {
+    const r = runImporter(
+      `${make}\nconst ev = (await sky.calendar.events({ from: "2037-03-03", to: "2037-03-03" }))[0];\n${tryCall(`sky.calendar.delete({ id: ev.id, date: "2037-03-03", version: ev.version })`)}`,
+      fx({ "DELETE /calendar_events/5001": { __throw: true }, "/calendar_events": { __sequence: [{ data: [stored()] }, { data: [stored()] }, { data: [] }] } })
+    );
+    expect(r.out).toMatchObject({ ok: true, value: { deleted: true, id: "5001" } });
+  }, 30_000);
+
 });
 
 describe("library writes stage 2: series create, update, delete (2026-11-16)", () => {
@@ -1320,4 +1369,49 @@ describe("library meal writes: create, update, delete (2026-11-19)", { timeout: 
     const d = run(attempt(`sky.meals.delete({ ${ref(s)} })`), { data: [s] }, { ["DELETE /instances/" + DAY]: { data: [], meta: { deleted_sitting_ids: [5] } } });
     expect(d.out).toMatchObject({ ok: false, code: "not_confirmed", eventId: "5" });
   });
+  // 2026-11-20 (Mantel's outcome_unknown proposal).
+  const SECRET = { __status: 500, errors: ["SKYLIGHT_SAYS_SECRET person.two@example.com"] };
+  const noLeak = (out: unknown) => {
+    expect(JSON.stringify(out)).not.toContain("SKYLIGHT_SAYS_SECRET");
+    expect(JSON.stringify(out)).not.toMatch(EMAIL);
+  };
+  const createInput = { title: "Tacos", date: DAY, category: "3", description: "Brown the beef.", note: "Meatless night.", profileIds: ["11"] };
+
+  it("R1. a meal create whose answer was lost but which landed resolves as created; one that did not land stays outcome_unknown and says to read the meals", () => {
+    const landed = run(attempt(`sky.meals.create(${JSON.stringify(createInput)})`), seq([], [sitting()]), { "POST /meals/sittings": { __throw: true } });
+    expect(landed.out).toMatchObject({ ok: true, value: { id: "5", title: "Tacos", note: "Meatless night." } });
+    const lost = run(attempt(`sky.meals.create(${JSON.stringify(createInput)})`), { data: [] }, { "POST /meals/sittings": { __throw: true } });
+    expect(lost.out).toMatchObject({ ok: false, code: "outcome_unknown" });
+    expect((lost.out as { message: string }).message).toContain("the meals");
+    expect((lost.out as { message: string }).message).not.toContain("calendar");
+    const old = run(attempt(`sky.meals.create(${JSON.stringify(createInput)})`), { data: [sitting()] }, { "POST /meals/sittings": { __throw: true } });
+    expect(old.out).toMatchObject({ ok: false, code: "outcome_unknown" });
+  });
+
+  it("R2. a meal read-back that fails after the write was accepted is not_confirmed with the id, without Skylight's text", () => {
+    const r = run(attempt(`sky.meals.create(${JSON.stringify(createInput)})`), { __sequence: [{ data: [] }, SECRET] }, { "POST /meals/sittings": { data: [sitting()] } });
+    expect(r.out).toMatchObject({ ok: false, name: "SkylightWriteError", code: "not_confirmed", eventId: "5" });
+    noLeak(r.out);
+  });
+
+  it("R3. a read that fails before a meal write is read_failed, for preview and commit, with nothing written and no Skylight text", () => {
+    const s = sitting();
+    const r = run(
+      `const a = await (async () => { ${attempt(`sky.meals.previewUpdate({ ${ref(s)}, changes: { note: "x" } })`)} })();\nconst b = await (async () => { ${attempt(`sky.meals.update({ ${ref(s)}, changes: { note: "x" } })`)} })();\nconst c = await (async () => { ${attempt(`sky.meals.delete({ ${ref(s)} })`)} })();\nreturn { a, b, c };`,
+      SECRET
+    );
+    const o = r.out as Record<string, unknown>;
+    for (const k of ["a", "b", "c"]) expect(o[k], k).toMatchObject({ ok: false, name: "SkylightWriteError", code: "read_failed" });
+    expect(writes(r.calls)).toHaveLength(0);
+    noLeak(r.out);
+  });
+
+  it("R4. a meal update or delete whose answer was lost but which landed resolves as done", () => {
+    const s = sitting();
+    const u = run(attempt(`sky.meals.update({ ${ref(s)}, changes: { note: "Taco Tuesday." } })`), seq([s], [sitting({ note: "Taco Tuesday." })]), { ["PATCH /instances/" + DAY]: { __throw: true } });
+    expect(u.out).toMatchObject({ ok: true, value: { id: "5", note: "Taco Tuesday." } });
+    const d = run(attempt(`sky.meals.delete({ ${ref(s)} })`), seq([s], []), { ["DELETE /instances/" + DAY]: { __throw: true } });
+    expect(d.out).toMatchObject({ ok: true, value: { deleted: true, id: "5", scope: null } });
+  });
+
 });

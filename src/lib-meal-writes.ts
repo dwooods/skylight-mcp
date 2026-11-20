@@ -30,7 +30,7 @@ import {
   type MealSittingResource,
 } from "./api/endpoints/meals.js";
 import { readBackUntil } from "./api/endpoints/source-calendars.js";
-import { mapWriteFailure, writeError } from "./lib-writes.js";
+import { afterWrite, asRead, mapReadFailure, mapWriteFailure, settleUnknown, writeError } from "./lib-writes.js";
 import { mealVersion } from "./lib-meals.js";
 import { checkMealText } from "./utils/meal-text.js";
 
@@ -206,7 +206,12 @@ interface CreatePlan {
   preview: CreateMealPreview;
 }
 
-export async function planCreateMeal(input: unknown): Promise<CreatePlan> {
+/** The one check behind previewCreate and create. It only reads; a failed read is `read_failed`. */
+export function planCreateMeal(input: unknown): Promise<CreatePlan> {
+  return asRead(() => planCreateMealInner(input));
+}
+
+async function planCreateMealInner(input: unknown): Promise<CreatePlan> {
   const raw = obj(input, "create");
   noUnknown(raw, CREATE_KEYS);
   const t = title(raw.title);
@@ -249,6 +254,8 @@ function matchesCreate(s: MealSittingResource, p: CreateMealPreview): boolean {
 
 export async function commitCreateMeal(input: unknown): Promise<MealSittingResource> {
   const { preview: p } = await planCreateMeal(input);
+  // What was already there, so a self-check after an unknown outcome can tell a new meal from an old one.
+  const before = new Set((await asRead(() => listMealSittingsOn(p.date))).map((s) => s.id));
   let created: MealSittingResource;
   try {
     created = await createMealSitting({
@@ -261,13 +268,18 @@ export async function commitCreateMeal(input: unknown): Promise<MealSittingResou
       ...(p.repeat ? { repeat: p.repeat } : {}),
     });
   } catch (error) {
-    throw mapWriteFailure(error);
+    return settleUnknown(mapWriteFailure(error, "the meals"), "the meals", async () => {
+      const fresh = (list: MealSittingResource[]) => list.filter((s) => !before.has(s.id) && matchesCreate(s, p));
+      const back = await readBackUntil(() => listMealSittingsOn(p.date), (list) => fresh(list).length > 0);
+      const found = fresh(back.value);
+      // Exactly one new meal that fits: that is the write. Two would be a guess.
+      return found.length === 1 ? found[0] : undefined;
+    });
   }
   const id = created?.id !== undefined && created?.id !== null ? String(created.id) : "";
   if (!id) throw writeError("outcome_unknown", "Skylight accepted the write but did not say which meal it created. Read the meals before trying again.");
-  const back = await readBackUntil(
-    () => listMealSittingsOn(p.date),
-    (list) => list.some((s) => s.id === id && matchesCreate(s, p))
+  const back = await afterWrite(id, "the meals", () =>
+    readBackUntil(() => listMealSittingsOn(p.date), (list) => list.some((s) => s.id === id && matchesCreate(s, p)))
   );
   const stored = back.value.find((s) => s.id === id);
   if (!back.ok || !stored) {
@@ -310,12 +322,6 @@ async function findForWrite(raw: Record<string, unknown>, keys: Set<string>, ver
   return { sitting, kind: mealKind(sitting), date };
 }
 
-/** A read that fails is not a write: sign-in errors pass through, anything else becomes the library's own error. */
-function mapReadFailure(error: unknown): unknown {
-  const e = error as { name?: string } | null;
-  if (e && (e.name === "AuthenticationError" || e.name === "CredentialSaveError")) return error;
-  return writeError("outcome_unknown", "Skylight did not answer the read. Nothing was written: try again.");
-}
 
 
 interface UpdatePlan {
@@ -328,7 +334,11 @@ interface UpdatePlan {
   preview: Omit<UpdateMealPreview<never>, "meal">;
 }
 
-export async function planUpdateMeal(input: unknown): Promise<UpdatePlan> {
+export function planUpdateMeal(input: unknown): Promise<UpdatePlan> {
+  return asRead(() => planUpdateMealInner(input));
+}
+
+async function planUpdateMealInner(input: unknown): Promise<UpdatePlan> {
   const raw = obj(input, "update");
   if (raw.scope !== undefined && raw.scope !== "one" && raw.scope !== "future" && raw.scope !== "all") {
     throw writeError("bad_input", 'scope must be "one", "future" or "all".');
@@ -446,7 +456,8 @@ export async function commitUpdateMeal(input: unknown): Promise<MealSittingResou
   const plan = await planUpdateMeal(input);
   const old = plan.found.sitting;
   const w = plan.preview.changes;
-  let result: { sittingId: string | null };
+  let result: { sittingId: string | null } = { sittingId: null };
+  let failure: unknown = null;
   try {
     result = await updateMealSitting({
       existing: old,
@@ -462,7 +473,7 @@ export async function commitUpdateMeal(input: unknown): Promise<MealSittingResou
       allowDetached: true,
     });
   } catch (error) {
-    throw mapWriteFailure(error);
+    failure = mapWriteFailure(error, "the meals");
   }
   const pick = (list: MealSittingResource[]): MealSittingResource | undefined =>
     list.find((s) => {
@@ -471,7 +482,9 @@ export async function commitUpdateMeal(input: unknown): Promise<MealSittingResou
       if (plan.scope === "one") return result.sittingId ? s.id === result.sittingId : s.id !== old.id;
       return s.id === old.id;
     });
-  const back = await readBackUntil(() => listMealSittingsOn(plan.newDate), (list) => pick(list) !== undefined);
+  const readBack = () => readBackUntil(() => listMealSittingsOn(plan.newDate), (list) => pick(list) !== undefined);
+  if (failure) return settleUnknown(failure, "the meals", async () => pick((await readBack()).value));
+  const back = await afterWrite(old.id, "the meals", readBack);
   const stored = pick(back.value);
   if (!back.ok || !stored) {
     throw writeError("not_confirmed", "Skylight accepted the change but reading it back did not show it as asked. Read the meals before trying again.", { eventId: old.id });
@@ -486,7 +499,11 @@ interface DeletePlan {
   effect: string;
 }
 
-export async function planDeleteMeal(input: unknown): Promise<DeletePlan> {
+export function planDeleteMeal(input: unknown): Promise<DeletePlan> {
+  return asRead(() => planDeleteMealInner(input));
+}
+
+async function planDeleteMealInner(input: unknown): Promise<DeletePlan> {
   const raw = obj(input, "delete");
   if (raw.scope !== undefined && raw.scope !== "one" && raw.scope !== "future" && raw.scope !== "all") {
     throw writeError("bad_input", 'scope must be "one", "future" or "all".');
@@ -515,12 +532,12 @@ export async function commitDeleteMeal(input: unknown): Promise<{ deleted: true;
   try {
     await deleteMealSitting(plan.found.sitting, plan.date, plan.scope ?? "one", true);
   } catch (error) {
-    throw mapWriteFailure(error);
+    return settleUnknown(mapWriteFailure(error, "the meals"), "the meals", async () => {
+      const gone = await readBackUntil(() => listMealSittingsOn(plan.date), (list) => !list.some((s) => s.id === id));
+      return gone.ok ? { deleted: true as const, id, scope: plan.scope } : undefined;
+    });
   }
-  const back = await readBackUntil(
-    () => listMealSittingsOn(plan.date),
-    (list) => !list.some((s) => s.id === id)
-  );
+  const back = await afterWrite(id, "the meals", () => readBackUntil(() => listMealSittingsOn(plan.date), (list) => !list.some((s) => s.id === id)));
   if (!back.ok) throw writeError("not_confirmed", "Skylight accepted the delete but the meal still shows on reading it back. Read the meals before trying again.", { eventId: id });
   return { deleted: true, id, scope: plan.scope };
 }
