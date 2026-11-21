@@ -33,6 +33,53 @@ import { readBackUntil } from "./api/endpoints/source-calendars.js";
 import { afterWrite, asRead, mapReadFailure, mapWriteFailure, settleUnknown, writeError } from "./lib-writes.js";
 import { mealVersion } from "./lib-meals.js";
 import { checkMealText } from "./utils/meal-text.js";
+import {
+  buildRrule,
+  normalizeRepeat,
+  occurrences,
+  parseRrule,
+  repeatNotices,
+  sameRepeat,
+  RepeatInputError,
+  type MealRepeat,
+  type RepeatNotice,
+  type Weekday,
+} from "./utils/meal-repeat.js";
+
+export type { MealRepeat, OtherRepeat, RepeatNotice, Weekday } from "./utils/meal-repeat.js";
+
+/**
+ * How a meal repeats, as Skylight's Plan Meal form sets it (captured 2026-11-20). `"weekly"` is
+ * every week on the weekday of the meal's date, with no end.
+ */
+export type MealRepeatInput =
+  | "weekly"
+  | {
+      every: "day" | "week" | "month" | "year";
+      /** Whole number 1-99, default 1. */
+      interval?: number;
+      /** "week" only. Default: the weekday of the meal's date, which the list must include. */
+      weekdays?: Weekday[];
+      /** "month" only. Default "date". Both take the day from the meal's date. */
+      monthlyOn?: "date" | "weekday";
+      /** YYYY-MM-DD, inclusive, on or after the meal's date. Omit for no end. */
+      until?: string | null;
+    };
+
+/** The dates the rule gives, as the library expands it: the first few, and the last when it ends. */
+export interface MealOccurrences {
+  first: string[];
+  last: string | null;
+}
+
+function repeatFrom(input: unknown, start: string): MealRepeat {
+  try {
+    return normalizeRepeat(input, start);
+  } catch (error) {
+    if (error instanceof RepeatInputError) throw writeError("invalid_repeat", error.message);
+    throw error;
+  }
+}
 
 export interface CreateMealInput {
   title: string;
@@ -44,8 +91,8 @@ export interface CreateMealInput {
   note?: string;
   /** Profile ids from `profiles.list()`. */
   profileIds?: string[];
-  /** Repeat every week on the weekday of `date`. Only this shape exists. */
-  repeat?: "weekly";
+  /** How it repeats. Omit for a one-off. */
+  repeat?: MealRepeatInput;
 }
 
 export interface MealRef {
@@ -63,7 +110,16 @@ export interface UpdateMealInput extends MealRef {
    */
   scope?: "one" | "future" | "all";
   /** What to change; anything left out stays. `date` moves a one-off meal. */
-  changes: { title?: string; category?: string; description?: string; note?: string; profileIds?: string[]; date?: string };
+  changes: {
+    title?: string;
+    category?: string;
+    description?: string;
+    note?: string;
+    profileIds?: string[];
+    date?: string;
+    /** A repeating meal with scope "all" only: the whole new rule, taken from the series' start. */
+    repeat?: MealRepeatInput;
+  };
 }
 
 export interface DeleteMealInput extends MealRef {
@@ -80,7 +136,10 @@ export interface CreateMealPreview {
   note: string | null;
   profileIds: string[];
   profiles: string[];
-  repeat: "weekly" | null;
+  /** The rule as it will be stored, or null for a one-off. */
+  repeat: MealRepeat | null;
+  occurrences: MealOccurrences | null;
+  notices: RepeatNotice[];
   warnings: string[];
 }
 
@@ -90,8 +149,11 @@ export interface UpdateMealPreview<T> {
   meal: T;
   scope: "one" | "future" | "all" | null;
   /** The fields that will be written. A cleared text field is null. */
-  changes: { title?: string; category?: { id: string; name: string }; description?: string | null; note?: string | null; profileIds?: string[]; profiles?: string[]; date?: string };
+  changes: { title?: string; category?: { id: string; name: string }; description?: string | null; note?: string | null; profileIds?: string[]; profiles?: string[]; date?: string; repeat?: MealRepeat };
   effect: string;
+  /** When the rule changes: its dates from the series' start. Otherwise null. */
+  occurrences: MealOccurrences | null;
+  notices: RepeatNotice[];
   warnings: string[];
 }
 
@@ -110,7 +172,7 @@ const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F]/;
 const CREATE_KEYS = new Set(["title", "date", "category", "description", "note", "profileIds", "repeat"]);
 const UPDATE_KEYS = new Set(["id", "date", "version", "scope", "changes"]);
 const DELETE_KEYS = new Set(["id", "date", "version", "scope"]);
-const CHANGE_KEYS = new Set(["title", "category", "description", "note", "profileIds", "date"]);
+const CHANGE_KEYS = new Set(["title", "category", "description", "note", "profileIds", "date", "repeat"]);
 
 function obj(value: unknown, what: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw writeError("bad_input", `${what} needs an object.`);
@@ -219,9 +281,7 @@ async function planCreateMealInner(input: unknown): Promise<CreatePlan> {
   const description = raw.description === undefined ? null : text(raw.description, "description") || null;
   const note = raw.note === undefined ? null : text(raw.note, "note") || null;
   const profileIds = raw.profileIds === undefined ? [] : ids(raw.profileIds, "profileIds");
-  if (raw.repeat !== undefined && raw.repeat !== "weekly") {
-    throw writeError("invalid_repeat", 'repeat can only be "weekly" (every week on the weekday of date).');
-  }
+  const repeat = raw.repeat === undefined || raw.repeat === null ? null : repeatFrom(raw.repeat, date);
   const warnings = textFindings({ summary: t, ...(note ? { note } : {}), ...(description ? { description } : {}) });
   const r = await refs();
   const category = checkCategory(raw.category, r);
@@ -236,7 +296,9 @@ async function planCreateMealInner(input: unknown): Promise<CreatePlan> {
       note,
       profileIds,
       profiles: profileIds.map((id) => r.profiles.get(id)!),
-      repeat: raw.repeat === "weekly" ? "weekly" : null,
+      repeat,
+      occurrences: repeat ? occurrences(repeat, date) : null,
+      notices: repeat ? repeatNotices(repeat, date) : [],
       warnings,
     },
   };
@@ -248,7 +310,7 @@ function matchesCreate(s: MealSittingResource, p: CreateMealPreview): boolean {
   if (!sameText(a.description, p.description) || !sameText(a.note, p.note)) return false;
   if (String(s.relationships?.meal_category?.data?.id ?? "") !== p.category.id) return false;
   if (!sameSet(profileIdsOf(s), p.profileIds)) return false;
-  if (p.repeat === "weekly") return typeof a.rrule === "string" && a.rrule.includes("FREQ=WEEKLY");
+  if (p.repeat) return a.recurring === true && sameRepeat(typeof a.rrule === "string" ? a.rrule : null, p.repeat, p.date);
   return !a.rrule && a.recurring !== true;
 }
 
@@ -265,7 +327,7 @@ export async function commitCreateMeal(input: unknown): Promise<MealSittingResou
       ...(p.description ? { description: p.description } : {}),
       ...(p.note ? { note: p.note } : {}),
       ...(p.profileIds.length > 0 ? { profileIds: p.profileIds } : {}),
-      ...(p.repeat ? { repeat: p.repeat } : {}),
+      ...(p.repeat ? { rrule: buildRrule(p.repeat, p.date) } : {}),
     });
   } catch (error) {
     return settleUnknown(mapWriteFailure(error, "the meals"), "the meals", async () => {
@@ -330,6 +392,10 @@ interface UpdatePlan {
   scope: "one" | "future" | "all" | null;
   newDate: string;
   seriesStart: string | undefined;
+  /** The new rule (scope "all" only), else null. */
+  repeat: MealRepeat | null;
+  /** The day the read-back looks at: the series' start when the rule changes (the edited day may drop out), else the meal's day. */
+  readDate: string;
   expect: { title: string; description: string | null; note: string | null; category: string; profileIds: string[] };
   preview: Omit<UpdateMealPreview<never>, "meal">;
 }
@@ -373,7 +439,16 @@ async function planUpdateMealInner(input: unknown): Promise<UpdatePlan> {
   if (kind === "series") {
     if (scope === null) throw writeError("scope_required", 'That is an occurrence of a repeating meal: say scope "one" (this day only), "future" (this and every later one) or "all" (the whole series).');
     if (moveTo !== undefined && moveTo !== date) throw writeError("unsupported", "Moving an occurrence of a repeating meal to another day is not supported here: use the Skylight app.");
+    if (ch.repeat !== undefined && scope !== "all") {
+      throw writeError("unsupported", 'Changing how a meal repeats needs scope "all" (the whole series); other scopes are not supported yet.');
+    }
+    if (ch.repeat !== undefined && parseRrule(typeof sitting.attributes.rrule === "string" ? sitting.attributes.rrule : null)?.every === "other") {
+      throw writeError("unsupported", "This series repeats in a way the library does not describe, so its rule cannot be changed here (a whole-series edit could drop parts of it): use the Skylight app.");
+    }
   } else {
+    if (ch.repeat !== undefined) {
+      throw writeError("unsupported", "Only a repeating meal's rule can be changed: making a one-off repeat, or a meal edited on its own, is not supported.");
+    }
     if (scope !== null) throw writeError("scope_not_allowed", "scope applies to an occurrence of a repeating meal only.");
     if (kind === "detached" && moveTo !== undefined && moveTo !== date) {
       throw writeError("unsupported", "Moving an occurrence that was edited on its own to another day is not supported here: use the Skylight app.");
@@ -404,6 +479,14 @@ async function planUpdateMealInner(input: unknown): Promise<UpdatePlan> {
   }
   const newDate = moveTo ?? date;
   if (newDate !== date) want.date = newDate;
+  const currentRule = typeof sitting.attributes.rrule === "string" ? sitting.attributes.rrule : null;
+  let repeat: MealRepeat | null = null;
+  if (ch.repeat !== undefined) {
+    if (ch.repeat === null) throw writeError("unsupported", "Turning a repeating meal into a one-off is not supported here: use the Skylight app.");
+    repeat = repeatFrom(ch.repeat, seriesStart!);
+    if (sameRepeat(currentRule, repeat, seriesStart!)) repeat = null; // already stored; not a change
+    else want.repeat = repeat;
+  }
 
   const a = sitting.attributes;
   const expect = {
@@ -422,7 +505,7 @@ async function planUpdateMealInner(input: unknown): Promise<UpdatePlan> {
   };
   if (
     expect.title === now.title && expect.description === now.description && expect.note === now.note &&
-    expect.category === now.category && sameSet(expect.profileIds, now.profileIds) && newDate === date
+    expect.category === now.category && sameSet(expect.profileIds, now.profileIds) && newDate === date && repeat === null
   ) {
     throw writeError("bad_input", "Those values are already stored: nothing to change.");
   }
@@ -434,7 +517,25 @@ async function planUpdateMealInner(input: unknown): Promise<UpdatePlan> {
     : kind === "detached" ? `"${name}" on ${date}, which was edited on its own (the rest of the series stays)`
     : newDate !== date ? `"${name}", moved from ${date} to ${newDate}`
     : `"${name}" on ${date}`;
-  return { found: { sitting, kind }, date, scope, newDate, seriesStart, expect, preview: { action: "update", scope, changes: want, effect, warnings } };
+  return {
+    found: { sitting, kind },
+    date,
+    scope,
+    newDate,
+    seriesStart,
+    repeat,
+    readDate: repeat ? seriesStart! : newDate,
+    expect,
+    preview: {
+      action: "update",
+      scope,
+      changes: want,
+      effect,
+      occurrences: repeat ? occurrences(repeat, seriesStart!) : null,
+      notices: repeat ? repeatNotices(repeat, seriesStart!) : [],
+      warnings,
+    },
+  };
 }
 
 function matchesExpect(s: MealSittingResource, plan: UpdatePlan): boolean {
@@ -444,7 +545,8 @@ function matchesExpect(s: MealSittingResource, plan: UpdatePlan): boolean {
   if (!sameText(a.description, e.description) || !sameText(a.note, e.note)) return false;
   if (String(s.relationships?.meal_category?.data?.id ?? "") !== e.category) return false;
   if (!sameSet(profileIdsOf(s), e.profileIds)) return false;
-  if (!(a.instances ?? []).includes(plan.newDate)) return false;
+  if (!(a.instances ?? []).includes(plan.readDate)) return false;
+  if (plan.repeat) return a.recurring === true && sameRepeat(typeof a.rrule === "string" ? a.rrule : null, plan.repeat, plan.seriesStart!);
   // A series keeps its rule, except the day that was split off with scope "one"; a one-off stays a one-off.
   if (plan.found.kind === "series" && plan.scope !== "one") return Boolean(a.rrule);
   if (plan.found.kind === "one-off") return !a.rrule && a.recurring !== true;
@@ -470,6 +572,7 @@ export async function commitUpdateMeal(input: unknown): Promise<MealSittingResou
       ...(w.profileIds ? { profileIds: w.profileIds } : {}),
       ...(plan.scope ? { scope: plan.scope } : {}),
       ...(plan.seriesStart ? { seriesStart: plan.seriesStart } : {}),
+      ...(plan.repeat ? { rrule: buildRrule(plan.repeat, plan.seriesStart!) } : {}),
       allowDetached: true,
     });
   } catch (error) {
@@ -482,7 +585,7 @@ export async function commitUpdateMeal(input: unknown): Promise<MealSittingResou
       if (plan.scope === "one") return result.sittingId ? s.id === result.sittingId : s.id !== old.id;
       return s.id === old.id;
     });
-  const readBack = () => readBackUntil(() => listMealSittingsOn(plan.newDate), (list) => pick(list) !== undefined);
+  const readBack = () => readBackUntil(() => listMealSittingsOn(plan.readDate), (list) => pick(list) !== undefined);
   if (failure) return settleUnknown(failure, "the meals", async () => pick((await readBack()).value));
   const back = await afterWrite(old.id, "the meals", readBack);
   const stored = pick(back.value);

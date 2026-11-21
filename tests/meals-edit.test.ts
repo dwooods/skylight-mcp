@@ -324,7 +324,7 @@ describe("create_meal_sitting with repeat", () => {
       await hosted("create_meal_sitting", { date: "2026-12-14", mealCategoryId: "12", summary: "Taco night", repeat: "weekly" })
     );
     expect(out.isError).toBe(false);
-    expect(out.text).toMatch(/repeating weekly/);
+    expect(out.text).toMatch(/repeating every week on Mon/);
     const post = seen.find((s) => s.method === "POST")!;
     expect(new URL(post.url).pathname).toBe("/api/frames/frame-1/meals/sittings");
     expect(post.body).toEqual({
@@ -467,5 +467,106 @@ describe("update_meal_sitting on a repeating meal", () => {
     const bad = await read(await local("update_meal_sitting", { sittingId: "5002/../../chores", date: DAY, summary: "x", scope: "all", confirm: true }));
     expect(bad.isError).toBe(true);
     expect(seen.some((s) => s.method !== "GET")).toBe(false);
+  });
+});
+
+// Full repeat options (captured 2026-11-20 from the web app's Plan Meal form).
+describe("meal repeat options in the tools", () => {
+  const START = "2026-11-30"; // a Monday
+  const DAY = "2026-12-14";
+  const live = { ...series, attributes: { ...series.attributes, instances: [START, "2026-12-07", DAY] } };
+  const created = { data: [{ ...series, id: "6001" }] };
+  const post = (seen: Seen[]) => seen.find((s) => s.method === "POST");
+
+  it("create sends the app's rule for each unit and says what it will do", async () => {
+    const cases: Array<[Record<string, unknown>, string, RegExp]> = [
+      [{ every: "week", interval: 2, weekdays: ["MO", "WE"], until: "2027-01-31" }, "FREQ=WEEKLY;INTERVAL=2;UNTIL=20270131T235959Z;WKST=SU;BYDAY=MO,WE", /every 2 weeks on Mon, Wed until 2027-01-31/],
+      [{ every: "month", monthlyOn: "weekday" }, "FREQ=MONTHLY;INTERVAL=1;BYSETPOS=2;BYDAY=MO", /every month on the same weekday/],
+      [{ every: "day", until: "2026-12-16" }, "FREQ=DAILY;INTERVAL=1;UNTIL=20261216T235959Z", /first: 2026-12-14, 2026-12-15, 2026-12-16; last: 2026-12-16/],
+      [{ every: "year" }, "FREQ=YEARLY;INTERVAL=1", /every year/],
+    ];
+    for (const [repeat, rule, text] of cases) {
+      const seen = stub([], created);
+      const out = await read(await hosted("create_meal_sitting", { date: DAY, mealCategoryId: "12", summary: "x", repeat }));
+      expect(out.isError, out.text).toBe(false);
+      expect((post(seen)!.body as { rrule: string }).rrule).toBe(rule);
+      expect(out.text).toMatch(text);
+    }
+  });
+
+  it("create notes the months a 31st skips", async () => {
+    stub([], created);
+    const out = await read(await hosted("create_meal_sitting", { date: "2027-01-31", mealCategoryId: "12", summary: "x", repeat: { every: "month" } }));
+    expect(out.text).toMatch(/no meal in month\(s\) 2, 4, 6, 9, 11/);
+  });
+
+  it("create refuses a bad repeat before writing: weekdays without the date's own, an end before the date, an unknown unit or field", async () => {
+    for (const repeat of [
+      { every: "week", weekdays: ["TU"] },
+      { every: "day", until: "2026-12-01" },
+      { every: "hour" },
+      { every: "day", count: 3 },
+      { every: "day", interval: 0 },
+    ]) {
+      const seen = stub([], created);
+      const out = await read(await hosted("create_meal_sitting", { date: DAY, mealCategoryId: "12", summary: "x", repeat }));
+      expect(out.isError, JSON.stringify(repeat)).toBe(true);
+      expect(post(seen), JSON.stringify(repeat)).toBeUndefined();
+    }
+  });
+
+  it("update previews a new rule from the series' start without writing, then sends it with scope all and checks it on reading back", async () => {
+    const seen = stub([live], { data: [live], meta: {} });
+    const preview = await read(await local("update_meal_sitting", { sittingId: "5002", date: DAY, scope: "all", repeat: { every: "week", until: "2026-12-21" } }));
+    expect(preview.text).toContain("NOT CHANGED");
+    expect(preview.text).toMatch(/repeat set to every week on Mon until 2026-12-21 \(from Mon, Nov 30: 2026-11-30, 2026-12-07, 2026-12-14, 2026-12-21; last 2026-12-21\)/);
+    expect(seen.some((s) => s.method !== "GET")).toBe(false);
+
+    const out = await read(await local("update_meal_sitting", { sittingId: "5002", date: DAY, scope: "all", repeat: { every: "week", until: "2026-12-21" }, confirm: true }));
+    const patch = seen.find((s) => s.method === "PATCH")!;
+    expect(applyTo(patch.url)).toBe("all");
+    expect(patch.body).toMatchObject({ date: START, rrule: "FREQ=WEEKLY;INTERVAL=1;UNTIL=20261221T235959Z;WKST=SU;BYDAY=MO" });
+    // The stub still serves the old rule, so the read-back must say so.
+    expect(out.text).toMatch(/WARNING: reading it back shows the rule FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=MO/);
+  });
+
+  it("update reports the new rule as stored when the read-back shows it", async () => {
+    const after = { ...live, attributes: { ...live.attributes, rrule: "FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=MO;UNTIL=20261221" } };
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit = {}) => {
+        const method = init.method ?? "GET";
+        if (method === "PATCH") n++;
+        return new Response(JSON.stringify(method === "GET" ? { data: [n ? after : live] } : { data: [after], meta: {} }), { status: 200 });
+      })
+    );
+    const out = await read(await local("update_meal_sitting", { sittingId: "5002", date: DAY, scope: "all", repeat: { every: "week", until: "2026-12-21" }, confirm: true }));
+    expect(out.isError, out.text).toBe(false);
+    expect(out.text).toMatch(/Read back: Skylight stores the new rule/);
+  });
+
+  it("update refuses repeat on a one-off, a detached day, scope one or future, an unchanged rule and a rule it cannot describe, writing nothing", async () => {
+    const other = { ...live, attributes: { ...live.attributes, rrule: "FREQ=WEEKLY;COUNT=4;BYDAY=MO" } };
+    const cases: Array<[unknown, Record<string, unknown>]> = [
+      [oneOff, { sittingId: "5001", date: "2026-11-03", repeat: "weekly", confirm: true }],
+      [detached, { sittingId: "5003", date: DAY, repeat: "weekly", confirm: true }],
+      [live, { sittingId: "5002", date: DAY, scope: "one", repeat: { every: "week", until: "2026-12-21" }, confirm: true }],
+      [live, { sittingId: "5002", date: DAY, scope: "future", repeat: { every: "week", until: "2026-12-21" }, confirm: true }],
+      [live, { sittingId: "5002", date: DAY, scope: "all", repeat: "weekly", confirm: true }],
+      [other, { sittingId: "5002", date: DAY, scope: "all", repeat: { every: "week", until: "2026-12-21" }, confirm: true }],
+    ];
+    for (const [sitting, args] of cases) {
+      const seen = stub([sitting]);
+      const out = await read(await local("update_meal_sitting", args));
+      expect(out.isError, JSON.stringify(args)).toBe(true);
+      expect(seen.some((s) => s.method !== "GET"), JSON.stringify(args)).toBe(false);
+    }
+  });
+
+  it("get_meal_sittings says how a series repeats", async () => {
+    stub([{ ...live, attributes: { ...live.attributes, rrule: "FREQ=WEEKLY;INTERVAL=2;WKST=SU;BYDAY=MO,WE;UNTIL=20270131" } }]);
+    const out = await read(await hosted("get_meal_sittings", { date: START, dateEnd: DAY }));
+    expect(out.text).toMatch(/\[repeats every 2 weeks on Mon, Wed until 2027-01-31\]/);
   });
 });
