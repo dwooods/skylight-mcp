@@ -807,6 +807,29 @@ describe("library writes stage 2: series create, update, delete (2026-11-16)", (
     const stuck = runImporter(`${make}\n${withVersions}\n${attempt(`sky.calendar.delete({ id: "5001", date: "2037-03-03", version: v["5001"] })`)}`, fx({ data: day }));
     expect(stuck.out).toMatchObject({ ok: false, code: "not_confirmed", eventId: "5001" });
   }, 30_000);
+
+  // 2026-11-20: the self-check after an uncertain write, for an event update, and when its own read fails.
+  const SECRET = { __status: 500, errors: ["SKYLIGHT_SAYS_SECRET person.two@example.com"] };
+
+  it("SC1. an event update whose answer was lost but which landed resolves as updated (the self-check)", () => {
+    const after = day.map((e) => (e.id === "5001" ? ev("5001", { summary: "Practice (late)" }) : e));
+    const { out, calls } = runImporter(
+      `${make}\n${withVersions}\n${attempt(`sky.calendar.update({ id: "5001", date: "2037-03-03", version: v["5001"], changes: { title: "Practice (late)" } })`)}`,
+      fx(seq(day, day, after), { "PUT /calendar_events/5001": { __throw: true } })
+    );
+    expect(out).toMatchObject({ ok: true, value: { id: "5001", title: "Practice (late)" } });
+    expect(writes(calls)).toHaveLength(1);
+  }, 30_000);
+
+  it("SC2. when the self-check's own read fails, the original outcome_unknown stands (may or may not be written), without Skylight's text", () => {
+    const { out } = runImporter(
+      `${make}\n${withVersions}\n${attempt(`sky.calendar.update({ id: "5001", date: "2037-03-03", version: v["5001"], changes: { title: "Practice (late)" } })`)}`,
+      fx({ __sequence: [{ data: day }, { data: day }, SECRET] }, { "PUT /calendar_events/5001": { __throw: true } })
+    );
+    expect(out).toMatchObject({ ok: false, name: "SkylightWriteError", code: "outcome_unknown" });
+    expect((out as { message: string }).message).toMatch(/^The write was sent but no answer came back \(a network error or a Skylight server error\)\. It may or may not have been written/);
+    expect(JSON.stringify(out)).not.toContain("SKYLIGHT_SAYS_SECRET");
+  }, 30_000);
 });
 
 describe("importer gaps reported by Mantel (2026-11-10)", () => {
@@ -1572,5 +1595,14 @@ describe("library meal repeats with Skylight's full options (2026-11-20)", { tim
       expect(r.out, expr).toMatchObject({ ok: false, code });
       expect(writes(r.calls), expr).toEqual([]);
     }
+  });
+  it("RP9. when a meal create's self-check read fails, the original outcome_unknown stands (may or may not), without Skylight's text", () => {
+    const SECRET = { __status: 500, errors: ["SKYLIGHT_SAYS_SECRET person.two@example.com"] };
+    const { out, calls } = run(attempt(`sky.meals.create(${JSON.stringify(base)})`), { __sequence: [{ data: [] }, SECRET] }, { "POST /meals/sittings": { __throw: true } });
+    expect(out).toMatchObject({ ok: false, name: "SkylightWriteError", code: "outcome_unknown" });
+    expect((out as { message: string }).message).toMatch(/^The write was sent but no answer came back \(a network error or a Skylight server error\)\. It may or may not have been written/);
+    expect((out as { message: string }).message).toContain("the meals");
+    expect(JSON.stringify(out)).not.toContain("SKYLIGHT_SAYS_SECRET");
+    expect(writes(calls)).toHaveLength(1);
   });
 });
