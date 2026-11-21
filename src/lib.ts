@@ -47,6 +47,7 @@ import {
 import { isChoreDone, parseOccurrenceId } from "./api/endpoints/chores.js";
 import { addDays } from "./utils/schedule.js";
 import { redactFeedUrl } from "./utils/redact.js";
+import { parseRrule, type MealRepeat, type OtherRepeat } from "./utils/meal-repeat.js";
 import type { CalendarEventResource, CategoryResource, ChoreResource, SourceCalendarResource } from "./api/types.js";
 import {
   afterWrite,
@@ -84,9 +85,15 @@ export type {
   CreateMealPreview,
   DeleteMealInput,
   DeleteMealPreview,
+  MealOccurrences,
   MealRef,
+  MealRepeat,
+  MealRepeatInput,
+  OtherRepeat,
+  RepeatNotice,
   UpdateMealInput,
   UpdateMealPreview,
+  Weekday,
 } from "./lib-meal-writes.js";
 export type { SeriesInput } from "./utils/series.js";
 
@@ -196,6 +203,12 @@ export interface MealSittingDto {
   profileIds: string[];
   /** True for an occurrence that was edited on its own: its own sitting now, still marked as repeating, with no link back to the series. */
   detached: boolean;
+  /**
+   * How the meal repeats: null for a one-off or a detached day; the rule's parts for a series
+   * (`until` inclusive, null when open-ended); `{ every: "other" }` for a stored rule using parts
+   * the library does not describe (a count, several months, ...).
+   */
+  repeat: MealRepeat | OtherRepeat | null;
   /** Fingerprint of the fields shown here (and the rule). Changes when the title, category, recipe, text, people or rule change; not when other days of a series change. */
   version: string;
 }
@@ -368,6 +381,7 @@ function toMeal(s: MealSittingResource, names: Map<string, string>, profileLabel
     }),
     profileIds,
     detached: mealKind(s) === "detached",
+    repeat: mealKind(s) === "series" ? parseRrule(typeof a.rrule === "string" ? a.rrule : null) : null,
     version: mealVersion(s),
   };
 }

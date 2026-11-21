@@ -1087,7 +1087,7 @@ describe("library entry: meal reads (description, note, people, version)", () =>
     expect(m!.detached).toBe(false);
     expect(m!.recurring).toBe(true);
     expect(m!.version).toMatch(/^[0-9a-f]{16}$/);
-    expect(Object.keys(m!).sort()).toEqual(["category", "dates", "description", "detached", "id", "note", "profileIds", "profiles", "recipeId", "recurring", "title", "version"]);
+    expect(Object.keys(m!).sort()).toEqual(["category", "dates", "description", "detached", "id", "note", "profileIds", "profiles", "recipeId", "recurring", "repeat", "title", "version"]);
     // The read asks for the people the way the app does.
     const get = r.calls.find((c) => c.url.includes("/meals/sittings"))!;
     expect(get.url).toContain("include=meal_category%2Cmeal_recipe%2Cprofiles");
@@ -1414,4 +1414,151 @@ describe("library meal writes: create, update, delete (2026-11-19)", { timeout: 
     expect(d.out).toMatchObject({ ok: true, value: { deleted: true, id: "5", scope: null } });
   });
 
+});
+
+describe("library meal repeats with Skylight's full options (2026-11-20)", { timeout: 30_000 }, () => {
+  const DAY = "2037-03-03"; // a Tuesday
+  const sitting = (over: Record<string, unknown> = {}, id = "5") => ({
+    id,
+    type: "meal_sitting",
+    attributes: { summary: "Tacos", instances: [DAY], recurring: false, rrule: null, description: null, note: null, ...over },
+    relationships: { meal_category: { data: { id: "3", type: "meal_category" } }, meal_recipe: { data: null }, profiles: { data: [] } },
+  });
+  const series = (rrule: string, over: Record<string, unknown> = {}, id = "5") => sitting({ recurring: true, rrule, instances: [DAY, "2037-03-10"], ...over }, id);
+  const fx = (sittings: unknown, extra: Record<string, unknown> = {}) => fixtures({ "/meals/sittings": sittings, ...extra });
+  const writes = (calls: Call[]) => calls.filter((c) => c.method !== "GET");
+  const attempt = (expr: string) => `try { return { ok: true, value: await ${expr} }; } catch (e) { return { ok: false, name: e.name, code: e.code, eventId: e.eventId, message: String(e.message) }; }`;
+  const run = (body: string, sittings: unknown, extra: Record<string, unknown> = {}) => runImporter(`${make}\n${body}`, fx(sittings, extra));
+  const versionOf = (s: unknown): string =>
+    ((runImporter(`${make}\nreturn await sky.meals.sittings({ from: "${DAY}", to: "2037-03-10" });`, fx({ data: [s] })).out as Array<{ version: string }>)[0]!.version);
+  const ref = (s: unknown) => `id: "5", date: "${DAY}", version: "${versionOf(s)}"`;
+  const base = { title: "Tacos", date: DAY, category: "3" };
+
+  it("RP1. preview: the rule as it will be stored, the first five dates and the last, and a skips_months code; nothing written", () => {
+    const { out, calls } = run(
+      `return {
+        a: await sky.meals.previewCreate({ ...${JSON.stringify(base)}, repeat: { every: "week", interval: 2, weekdays: ["TU", "TH"], until: "2037-04-30" } }),
+        w: await sky.meals.previewCreate({ ...${JSON.stringify(base)}, repeat: "weekly" }),
+        m: await sky.meals.previewCreate({ ...${JSON.stringify(base)}, date: "2037-01-31", repeat: { every: "month" } }),
+        one: await sky.meals.previewCreate(${JSON.stringify(base)}),
+      };`,
+      { data: [] }
+    );
+    const o = out as Record<string, Record<string, unknown>>;
+    expect(o.a!.repeat).toEqual({ every: "week", interval: 2, weekdays: ["TU", "TH"], until: "2037-04-30" });
+    expect(o.a!.occurrences).toEqual({ first: ["2037-03-03", "2037-03-05", "2037-03-17", "2037-03-19", "2037-03-31"], last: "2037-04-30" });
+    expect(o.a!.notices).toEqual([]);
+    expect(o.w!.repeat).toEqual({ every: "week", interval: 1, weekdays: ["TU"], until: null });
+    expect((o.w!.occurrences as { last: unknown }).last).toBeNull();
+    expect(o.m!.notices).toEqual([{ code: "skips_months", months: [2, 4, 6, 9, 11] }]);
+    expect(o.one).toMatchObject({ repeat: null, occurrences: null, notices: [] });
+    expect(writes(calls)).toEqual([]);
+  });
+
+  it("RP2. create sends the app's rule; Skylight's rewritten end reads back as a match; the read shows the parts", () => {
+    const input = { ...base, repeat: { every: "week", interval: 2, weekdays: ["TU", "TH"], until: "2037-04-30" } };
+    const stored = series("FREQ=WEEKLY;INTERVAL=2;WKST=SU;BYDAY=TU,TH;UNTIL=20370430");
+    const { out, calls } = run(attempt(`sky.meals.create(${JSON.stringify(input)})`), { __sequence: [{ data: [] }, { data: [stored] }] }, { "POST /meals/sittings": { data: [stored] } });
+    expect(out).toMatchObject({ ok: true, value: { id: "5", recurring: true, repeat: { every: "week", interval: 2, weekdays: ["TU", "TH"], until: "2037-04-30" } } });
+    const w = writes(calls);
+    expect(w).toHaveLength(1);
+    expect(JSON.parse(w[0]!.body!).rrule).toBe("FREQ=WEEKLY;INTERVAL=2;UNTIL=20370430T235959Z;WKST=SU;BYDAY=TU,TH");
+  });
+
+  it("RP3. a stored rule that differs from what was asked (end, interval, days, month day) is not_confirmed", () => {
+    const input = { ...base, repeat: { every: "week", interval: 2, weekdays: ["TU", "TH"], until: "2037-04-30" } };
+    for (const wrong of [
+      "FREQ=WEEKLY;INTERVAL=2;WKST=SU;BYDAY=TU,TH;UNTIL=20370429",
+      "FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU,TH;UNTIL=20370430",
+      "FREQ=WEEKLY;INTERVAL=2;WKST=SU;BYDAY=TU;UNTIL=20370430",
+      "FREQ=WEEKLY;INTERVAL=2;WKST=SU;BYDAY=TU,TH",
+    ]) {
+      const stored = series(wrong);
+      const r = run(attempt(`sky.meals.create(${JSON.stringify(input)})`), { __sequence: [{ data: [] }, { data: [stored] }] }, { "POST /meals/sittings": { data: [stored] } });
+      expect(r.out, wrong).toMatchObject({ ok: false, code: "not_confirmed", eventId: "5" });
+    }
+    const month = { ...base, repeat: { every: "month" } };
+    const offDay = series("FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=4");
+    const m = run(attempt(`sky.meals.create(${JSON.stringify(month)})`), { __sequence: [{ data: [] }, { data: [offDay] }] }, { "POST /meals/sittings": { data: [offDay] } });
+    expect(m.out).toMatchObject({ ok: false, code: "not_confirmed" });
+  });
+
+  it("RP4. every bad repeat is invalid_repeat from preview and create, before any write", () => {
+    const bad = [
+      "daily",
+      { every: "hour" },
+      { every: "day", interval: 0 },
+      { every: "day", interval: 100 },
+      { every: "week", weekdays: ["MO"] },
+      { every: "month", weekdays: ["TU"] },
+      { every: "week", monthlyOn: "date" },
+      { every: "day", until: "2037-03-02" },
+      { every: "day", count: 3 },
+    ];
+    const { out, calls } = run(
+      `const r = [];
+      for (const b of ${JSON.stringify(bad)}) {
+        for (const f of [sky.meals.previewCreate, sky.meals.create]) {
+          try { await f({ ...${JSON.stringify(base)}, repeat: b }); r.push("ok"); } catch (e) { r.push(e.code); }
+        }
+      }
+      return r;`,
+      { data: [] }
+    );
+    expect(out).toEqual(Array(bad.length * 2).fill("invalid_repeat"));
+    expect(writes(calls)).toEqual([]);
+  });
+
+  it("RP5. reads: a series' parts, other for rules the library does not describe, null for a one-off and a detached day", () => {
+    const { out } = run(
+      `return await sky.meals.sittings({ from: "${DAY}", to: "2037-03-10" });`,
+      {
+        data: [
+          series("FREQ=MONTHLY;INTERVAL=1;BYSETPOS=1;BYDAY=TU", {}, "1"),
+          series("FREQ=WEEKLY;COUNT=4;BYDAY=TU", {}, "2"),
+          sitting({}, "3"),
+          sitting({ recurring: true, rrule: null }, "4"),
+        ],
+      }
+    );
+    const byId = Object.fromEntries((out as Array<{ id: string; repeat: unknown }>).map((m) => [m.id, m.repeat]));
+    expect(byId).toEqual({ "1": { every: "month", interval: 1, monthlyOn: "weekday", until: null }, "2": { every: "other" }, "3": null, "4": null });
+  });
+
+  it("RP6. update with scope all sends the new rule (from the series' start) and reads back on the start, same id", () => {
+    const old = series("FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU");
+    const after = series("FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU;UNTIL=20370324", { instances: [DAY, "2037-03-10", "2037-03-17", "2037-03-24"] });
+    const { out, calls } = run(
+      `const p = await sky.meals.previewUpdate({ ${ref(old)}, scope: "all", changes: { repeat: { every: "week", until: "2037-03-24" } } });
+      const u = await (async () => { ${attempt(`sky.meals.update({ ${ref(old)}, scope: "all", changes: { repeat: { every: "week", until: "2037-03-24" } } })`)} })();
+      return { p, u };`,
+      { __sequence: [{ data: [old] }, { data: [old] }, { data: [old] }, { data: [old] }, { data: [after] }] }
+    );
+    const o = out as { p: Record<string, unknown>; u: Record<string, unknown> };
+    expect(o.p).toMatchObject({ scope: "all", changes: { repeat: { every: "week", interval: 1, weekdays: ["TU"], until: "2037-03-24" } }, occurrences: { first: [DAY, "2037-03-10", "2037-03-17", "2037-03-24"], last: "2037-03-24" } });
+    expect(o.u).toMatchObject({ ok: true, value: { id: "5", repeat: { until: "2037-03-24" } } });
+    const w = writes(calls);
+    expect(w).toHaveLength(1);
+    expect(new URL(w[0]!.url).searchParams.get("apply_to")).toBe("all");
+    expect(JSON.parse(w[0]!.body!)).toMatchObject({ date: DAY, rrule: "FREQ=WEEKLY;INTERVAL=1;UNTIL=20370324T235959Z;WKST=SU;BYDAY=TU" });
+  });
+
+  it("RP7. refused: scope one or future, a one-off, a detached day, null, an 'other' rule, and an unchanged rule; nothing written", () => {
+    const s = series("FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU");
+    const cases: Array<[string, unknown, string]> = [
+      [`sky.meals.update({ ${ref(s)}, scope: "one", changes: { repeat: { every: "week", until: "2037-03-24" } } })`, s, "unsupported"],
+      [`sky.meals.update({ ${ref(s)}, scope: "future", changes: { repeat: { every: "week", until: "2037-03-24" } } })`, s, "unsupported"],
+      [`sky.meals.update({ ${ref(s)}, scope: "all", changes: { repeat: null } })`, s, "unsupported"],
+      [`sky.meals.update({ ${ref(s)}, scope: "all", changes: { repeat: "weekly" } })`, s, "bad_input"],
+      [`sky.meals.update({ ${ref(sitting())}, changes: { repeat: "weekly" } })`, sitting(), "unsupported"],
+      [`sky.meals.update({ ${ref(sitting({ recurring: true, rrule: null }))}, changes: { repeat: "weekly" } })`, sitting({ recurring: true, rrule: null }), "unsupported"],
+      [`sky.meals.update({ ${ref(series("FREQ=WEEKLY;COUNT=4;BYDAY=TU"))}, scope: "all", changes: { repeat: { every: "week", until: "2037-03-24" } } })`, series("FREQ=WEEKLY;COUNT=4;BYDAY=TU"), "unsupported"],
+      [`sky.meals.update({ ${ref(s)}, scope: "all", changes: { repeat: { every: "week", weekdays: ["WE"] } } })`, s, "invalid_repeat"],
+    ];
+    for (const [expr, data, code] of cases) {
+      const r = run(attempt(expr), { data: [data] });
+      expect(r.out, expr).toMatchObject({ ok: false, code });
+      expect(writes(r.calls), expr).toEqual([]);
+    }
+  });
 });

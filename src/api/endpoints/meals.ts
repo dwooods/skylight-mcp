@@ -251,8 +251,13 @@ export interface CreateMealSittingOptions {
   /** Free-text meal name. Either this or recipeId should be given. */
   summary?: string;
   recipeId?: string;
-  /** Repeat weekly on the weekday of `date`. Only this shape was captured. */
+  /** Repeat weekly on the weekday of `date` (the shape captured first, 2026-11-01). */
   repeat?: "weekly";
+  /**
+   * A rule built by utils/meal-repeat.ts from the Plan Meal form's options (captured 2026-11-20).
+   * Takes precedence over `repeat`.
+   */
+  rrule?: string;
   /** Profile (category) ids the meal is for. Empty or missing: unassigned. Sends the app's whole form under MEAL_EDIT_API_VERSION. */
   profileIds?: string[];
   /** The "Instructions or ingredients" text. Sends the app's whole form under MEAL_EDIT_API_VERSION. */
@@ -294,7 +299,8 @@ export async function createMealSitting(
   }
 
   const profileIds = [...new Set(options.profileIds ?? [])];
-  if (options.repeat === "weekly" || profileIds.length > 0 || options.description || options.note) {
+  const rrule = options.rrule ?? (options.repeat === "weekly" ? weeklyRrule(options.date) : null);
+  if (rrule || profileIds.length > 0 || options.description || options.note) {
     // A repeating or assigned create sends the web app's whole form (repeat captured 2026-11-01,
     // assignment 2026-11-12 under API version 2026-10-15). Not verified live from this code path.
     for (const id of profileIds) if (!/^\d{1,12}$/.test(id)) throw new Error("Profile IDs must be numeric.");
@@ -306,7 +312,7 @@ export async function createMealSitting(
       meal_category_id: options.mealCategoryId,
       meal_recipe_id: options.recipeId ?? null,
       profile_ids: profileIds,
-      rrule: options.repeat === "weekly" ? weeklyRrule(options.date) : null,
+      rrule,
       add_to_grocery_list: false,
       saveToRecipeBox: false,
     };
@@ -463,6 +469,11 @@ export interface UpdateMealSittingOptions {
   /** For scope "all": the series' original start date, from findSeriesStart. */
   seriesStart?: string;
   /**
+   * Scope "all" on a series only: the new rule (utils/meal-repeat.ts), sent in place of the stored
+   * one. Captured 2026-11-20: the app changes or adds an end date this way, same id back.
+   */
+  rrule?: string;
+  /**
    * Allow editing an occurrence that was edited on its own (captured 2026-11-19: PATCH with
    * apply_to=one and rrule null, same id back). Off by default so the MCP tool keeps refusing.
    */
@@ -490,11 +501,17 @@ export async function updateMealSitting(options: UpdateMealSittingOptions): Prom
   const target = assertIsoDate(options.newDate ?? date);
   let scope: MealEditScope | undefined;
   let bodyDate = target;
+  if (options.rrule !== undefined && kind !== "series") {
+    throw new Error("Only a repeating meal's rule can be changed here; making a one-off repeat, or a repeating meal a one-off, is not supported.");
+  }
   if (kind === "series") {
     scope = options.scope;
     if (!scope) assertOneOff(existing);
     if (target !== date) {
       throw new Error("Moving an occurrence of a repeating meal to another day is not supported here; use the Skylight app.");
+    }
+    if (options.rrule !== undefined && scope !== "all") {
+      throw new Error("Changing how a meal repeats needs scope \"all\" (the only form captured).");
     }
     if (scope === "all") {
       // The body date becomes the series' start. Anything but the real start deletes history.
@@ -513,7 +530,7 @@ export async function updateMealSitting(options: UpdateMealSittingOptions): Prom
   const payload = {
     date: bodyDate,
     note: options.note ?? (typeof a.note === "string" ? a.note : ""),
-    rrule: kind === "series" ? a.rrule : null,
+    rrule: kind === "series" ? (options.rrule !== undefined ? options.rrule : a.rrule) : null,
     summary: options.summary ?? a.summary ?? "",
     description: options.description ?? (typeof a.description === "string" ? a.description : ""),
     meal_category_id: options.mealCategoryId ?? existing.relationships?.meal_category?.data?.id ?? null,
