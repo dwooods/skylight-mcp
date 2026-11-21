@@ -23,7 +23,9 @@ const must = (name, ok, extra) => { if (!step(name, ok, extra)) throw new Error(
 const errInfo = (e) => `${e?.name ?? "Error"}${e?.code ? " code=" + e.code : ""}`;
 const mine = async (title) => (await sk.meals.sittings({ from: FROM, to: TO })).filter((m) => (title ? m.title === title : String(m.title ?? "").startsWith(PREFIX)));
 const days = (list) => list.flatMap((m) => m.dates).sort();
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// Compare values, not key order: { a, b } and { b, a } are the same rule.
+const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
+const same = (a, b) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 const within = (list, last) => list.filter((d) => d <= last);
 
 let started = false;

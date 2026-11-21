@@ -125,7 +125,9 @@ export function normalizeRepeat(input: unknown, date: string): MealRepeat {
     if (monthlyOn !== "date" && monthlyOn !== "weekday") throw new RepeatInputError('repeat.monthlyOn must be "date" or "weekday".');
     out.monthlyOn = monthlyOn;
   }
-  return out;
+  // Same key order everywhere (every, interval, weekdays or monthlyOn, until), so results compare and print alike.
+  const { until: end, ...rest } = out;
+  return { ...rest, until: end };
 }
 
 /** The rule as the app sends it for this start date (the end, when there is one, as T235959Z). */
@@ -204,7 +206,9 @@ export function parseRrule(rule: string | null | undefined): MealRepeat | OtherR
   } else if (byday !== undefined || bymonthday !== undefined || bysetpos !== undefined) {
     return other;
   }
-  return out;
+  // Same key order everywhere (every, interval, weekdays or monthlyOn, until), so results compare and print alike.
+  const { until: end, ...rest } = out;
+  return { ...rest, until: end };
 }
 
 /**
