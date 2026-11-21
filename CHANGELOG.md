@@ -7,11 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.28.0] - 2026-11-20
+
 ### Added
 - Meal repeats with the options of Skylight's Plan Meal form (captured from the web app on 2026-11-20): every N day, week, month or year; weekdays for weeks; the day of the month or the nth weekday for months; an optional inclusive end date. No count, as in the app.
   - Library: `repeat` on `meals.previewCreate`/`create` takes `"weekly"` or `{ every, interval?, weekdays?, monthlyOn?, until? }`; `changes.repeat` on update replaces a series' rule with scope `"all"` only. Previews return `repeat` as the normalised object (also for `"weekly"`; this changes the preview's shape), `occurrences` (first five dates, and the last when there is an end) and `notices` (`skips_months` with the month numbers). The read-back compares the stored rule part by part. `meals.sittings` returns `repeat` per sitting (`{ every: "other" }` for rules the library does not describe). Refusals are `invalid_repeat`, or `unsupported` for scopes other than `all`, a one-off, a detached day, turning a series into a one-off, or a series whose rule is "other". Agreed with Mantel before building.
   - MCP tools: `create_meal_sitting` and `update_meal_sitting` take the same `repeat` (update: scope `all`, preview-first, read back after); `get_meal_sittings` says how each series repeats.
-  - Not run live yet.
+  - Live on the real frame through the library (2026-11-20, `scripts/meal-repeat-live-check.mjs`, 17 of 17): every 2 weeks on Mon+Wed with an end, its end moved earlier and then removed with scope `all` (same id; every earlier day exactly as before), monthly on the 1st Monday, daily with an end, yearly; each read back as asked and matching the preview's dates; all deleted. The MCP tools share the rule code but their own output was not run live.
 
 ## [1.27.1] - 2026-11-20
 
