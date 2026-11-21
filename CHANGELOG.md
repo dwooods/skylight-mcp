@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- README: the meal repeat options in the MCP tools are now recorded as run live (2026-11-20, `scripts/tools-repeat-live-check.mjs` driving the local server over stdio: create, read, a scope `all` end change with read-back, a refused scope `one` change, delete). The hosted connector's handling of the new parameter is not yet exercised. Added that script.
+
 ## [1.28.0] - 2026-11-20
 
 ### Added
