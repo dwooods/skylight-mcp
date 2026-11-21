@@ -1543,6 +1543,18 @@ describe("library meal repeats with Skylight's full options (2026-11-20)", { tim
     expect(JSON.parse(w[0]!.body!)).toMatchObject({ date: DAY, rrule: "FREQ=WEEKLY;INTERVAL=1;UNTIL=20370324T235959Z;WKST=SU;BYDAY=TU" });
   });
 
+  it("RP8. an end moved before the day being edited: the read-back looks at the series' start, where the series still is", () => {
+    const old = series("FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU");
+    const after = series("FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU;UNTIL=20370303", { instances: [DAY] });
+    const v = versionOf(old);
+    const { out, calls } = run(
+      attempt(`sky.meals.update({ id: "5", date: "2037-03-10", version: "${v}", scope: "all", changes: { repeat: { every: "week", until: "${DAY}" } } })`),
+      { __sequence: [{ data: [old] }, { data: [old] }, { data: [after] }] }
+    );
+    expect(out).toMatchObject({ ok: true, value: { id: "5", repeat: { until: DAY } } });
+    expect(writes(calls)).toHaveLength(1);
+  });
+
   it("RP7. refused: scope one or future, a one-off, a detached day, null, an 'other' rule, and an unchanged rule; nothing written", () => {
     const s = series("FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU");
     const cases: Array<[string, unknown, string]> = [
