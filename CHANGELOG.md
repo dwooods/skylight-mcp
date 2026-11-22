@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - README: the meal repeat options in the MCP tools are now recorded as run live (2026-11-20, `scripts/tools-repeat-live-check.mjs` driving the local server over stdio: create, read, a scope `all` end change with read-back, a refused scope `one` change, delete). The hosted connector's handling of the new parameter is not yet exercised. Added that script.
 - README: the meal repeat options are recorded as run live through the hosted connector (2026-11-20, one throwaway series created, its end moved and deleted with scope `all`), and a monthly rule on the 31st and on the 5th Monday as run live through the library (2026-11-22, 23 of 23 steps: the days Skylight stored matched the preview's). The old "profiles read and `profileIds` not run live" line is replaced by the 2026-11-20 results. `scripts/meal-repeat-live-check.mjs` now includes both monthly rules.
+- README and `scripts/meal-repeat-live-check.mjs`: two more monthly rules run live through the library (2026-11-22, 29 of 29 steps): the 29th from Jan 2027 to Mar 2028 (Skylight skipped February 2027 and stored Feb 29 2028, as the model says) and every 2 months on the 15th. Not run: yearly on Feb 29, an interval above 1 on a day or year rule.
 
 ## [1.28.0] - 2026-11-20
 

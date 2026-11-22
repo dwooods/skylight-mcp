@@ -8,6 +8,8 @@
 // capture: monthly on the 31st (Jan 31 to Jun 30, expects Jan 31, Mar 31, May 31) and monthly on the 5th Monday
 // (Mar 29 to Aug 31, expects Mar 29, May 31, Aug 30). A difference there is a finding about Skylight, not a bug in
 // this script: it means the preview's dates and the skips_months notice describe something Skylight does not do.
+// Then monthly on the 29th across a leap February (Jan 29 2027 to Mar 31 2028: no Feb 29 in 2027, one in 2028) and
+// every 2 months on the 15th (Mar 15 to Dec 31 2027, expects Mar, May, Jul, Sep, Nov).
 // Each is compared with the preview's dates, then deleted (scope "all").
 // A failure runs a cleanup that deletes anything left with that title prefix from 2027-01-01 to 2027-09-30.
 // Prints step results only: no ids, no stored text.
@@ -31,6 +33,8 @@ const days = (list) => list.flatMap((m) => m.dates).sort();
 const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
 const same = (a, b) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 const within = (list, last) => list.filter((d) => d <= last);
+// Like mine(title) but reading further out, for rules that run past TO. Series start inside FROM..TO, so mine() still finds them.
+const mineIn = async (title, to) => (await sk.meals.sittings({ from: FROM, to })).filter((m) => m.title === title);
 
 let started = false;
 try {
@@ -94,6 +98,23 @@ try {
     step(`${label}: preview dates are the model's`, same(p.occurrences.first, m.days) && p.occurrences.last === m.days[m.days.length - 1], p.occurrences.first.join(" "));
     await sk.meals.create({ title: m.title, date: m.date, category: cat, repeat: m.repeat });
     const got = await mine(m.title);
+    step(`${label}: one series, rule read back as asked`, got.length === 1 && same(got[0].repeat, m.want));
+    step(`${label}: Skylight stored exactly the model's days`, same(days(got), m.days), `stored ${days(got).join(" ") || "none"}; model ${m.days.join(" ")}`);
+  }
+
+  // 4c. a 29th across a leap February, and an interval above 1 on a month rule
+  const far = [
+    { title: `${PREFIX} G`, date: "2027-01-29", to: "2028-03-31", repeat: { every: "month", until: "2028-03-31" }, want: { every: "month", interval: 1, monthlyOn: "date", until: "2028-03-31" },
+      days: ["2027-01-29", "2027-03-29", "2027-04-29", "2027-05-29", "2027-06-29", "2027-07-29", "2027-08-29", "2027-09-29", "2027-10-29", "2027-11-29", "2027-12-29", "2028-01-29", "2028-02-29", "2028-03-29"] },
+    { title: `${PREFIX} H`, date: "2027-03-15", to: "2027-12-31", repeat: { every: "month", interval: 2, until: "2027-12-31" }, want: { every: "month", interval: 2, monthlyOn: "date", until: "2027-12-31" },
+      days: ["2027-03-15", "2027-05-15", "2027-07-15", "2027-09-15", "2027-11-15"] },
+  ];
+  for (const m of far) {
+    const label = m.title.slice(PREFIX.length + 1);
+    const p = await sk.meals.previewCreate({ title: m.title, date: m.date, category: cat, repeat: m.repeat });
+    step(`${label}: preview dates are the model's`, same(p.occurrences.first, m.days.slice(0, 5)) && p.occurrences.last === m.days[m.days.length - 1], `${p.occurrences.first.join(" ")} ... ${p.occurrences.last}`);
+    await sk.meals.create({ title: m.title, date: m.date, category: cat, repeat: m.repeat });
+    const got = await mineIn(m.title, m.to);
     step(`${label}: one series, rule read back as asked`, got.length === 1 && same(got[0].repeat, m.want));
     step(`${label}: Skylight stored exactly the model's days`, same(days(got), m.days), `stored ${days(got).join(" ") || "none"}; model ${m.days.join(" ")}`);
   }
