@@ -2,17 +2,21 @@
 // Run after `npm run build`:
 //   node scripts/meal-repeat-live-check.mjs
 // WRITES to the frame, then undoes itself. Creates throwaway series titled "ZZ repeat check …" (Dinner, unassigned,
-// March to May 2027): every 2 weeks on Mon+Wed until Apr 28, then moves its end to Mar 31 and removes the end, each
+// Jan to Aug 2027): every 2 weeks on Mon+Wed until Apr 28, then moves its end to Mar 31 and removes the end, each
 // with scope "all", checking that every earlier day stays exactly as it was; then a monthly 1st-Monday series, a daily
-// series with an end and a yearly one. Each is compared with the preview's dates, then deleted (scope "all").
-// A failure runs a cleanup that deletes anything left with that title prefix from 2027-03-01 to 2027-06-30.
+// series with an end and a yearly one. Then two rules whose skipped months come from our own date model, not from a
+// capture: monthly on the 31st (Jan 31 to Jun 30, expects Jan 31, Mar 31, May 31) and monthly on the 5th Monday
+// (Mar 29 to Aug 31, expects Mar 29, May 31, Aug 30). A difference there is a finding about Skylight, not a bug in
+// this script: it means the preview's dates and the skips_months notice describe something Skylight does not do.
+// Each is compared with the preview's dates, then deleted (scope "all").
+// A failure runs a cleanup that deletes anything left with that title prefix from 2027-01-01 to 2027-09-30.
 // Prints step results only: no ids, no stored text.
 import { createSkylight } from "../dist/lib.js";
 import { defaultCredentialStore } from "../dist/api/credential-store.js";
 import { readConfigFile } from "../dist/config-file.js";
 
 const PREFIX = "ZZ repeat check";
-const FROM = "2027-03-01", TO = "2027-06-30";
+const FROM = "2027-01-01", TO = "2027-09-30";
 const cfg = await readConfigFile();
 if (!cfg) { console.error("No settings file. Run `skylight-mcp init` first."); process.exit(2); }
 const sk = createSkylight({ frameId: cfg.frameId, timezone: cfg.timezone, credential: defaultCredentialStore() });
@@ -77,6 +81,21 @@ try {
     const got = await mine(m.title);
     const inWindow = p.occurrences.first.filter((d) => d <= TO);
     step(`${m.title.slice(PREFIX.length + 1)}: rule read back as asked, days match the preview`, got.length === 1 && same(got[0].repeat, m.want) && same(days(got).slice(0, inWindow.length), inWindow), days(got).join(" "));
+  }
+
+  // 4b. rules whose skipped months come from our date model: compare every stored day with the model's days
+  const skip = [
+    { title: `${PREFIX} E`, date: "2027-01-31", repeat: { every: "month", until: "2027-06-30" }, want: { every: "month", interval: 1, monthlyOn: "date", until: "2027-06-30" }, days: ["2027-01-31", "2027-03-31", "2027-05-31"] },
+    { title: `${PREFIX} F`, date: "2027-03-29", repeat: { every: "month", monthlyOn: "weekday", until: "2027-08-31" }, want: { every: "month", interval: 1, monthlyOn: "weekday", until: "2027-08-31" }, days: ["2027-03-29", "2027-05-31", "2027-08-30"] },
+  ];
+  for (const m of skip) {
+    const label = m.title.slice(PREFIX.length + 1);
+    const p = await sk.meals.previewCreate({ title: m.title, date: m.date, category: cat, repeat: m.repeat });
+    step(`${label}: preview dates are the model's`, same(p.occurrences.first, m.days) && p.occurrences.last === m.days[m.days.length - 1], p.occurrences.first.join(" "));
+    await sk.meals.create({ title: m.title, date: m.date, category: cat, repeat: m.repeat });
+    const got = await mine(m.title);
+    step(`${label}: one series, rule read back as asked`, got.length === 1 && same(got[0].repeat, m.want));
+    step(`${label}: Skylight stored exactly the model's days`, same(days(got), m.days), `stored ${days(got).join(" ") || "none"}; model ${m.days.join(" ")}`);
   }
 
   // 5. delete everything, whole series
