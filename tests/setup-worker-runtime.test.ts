@@ -112,7 +112,7 @@ describe("setup entry inside the Workers runtime (workerd, nodejs_compat)", () =
 
   it("the stored credential then reads through createSkylight, with the feed address reduced to its host", () => {
     for (const c of calls.filter((c) => new URL(c.url).pathname !== "/oauth/token")) expect(c.auth).toBe("Bearer AT-worker-1");
-    expect(result.sources).toEqual([{ id: "2", label: "League", kind: "feed", role: "reader", editable: false, host: "webcal://feeds.example.com", writable: false }]);
+    expect(result.sources).toEqual([{ id: "2", label: "League", kind: "feed", role: "reader", editable: false, host: "webcal://feeds.example.com", writable: false, skylightDefault: false }]);
     expect(JSON.stringify(result.sources)).not.toContain("SECRETFEED");
   });
 });
