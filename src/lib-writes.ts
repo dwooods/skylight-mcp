@@ -175,6 +175,45 @@ async function sourcesWithAccounts(): Promise<SourceCalendarResource[]> {
   return response.data ?? [];
 }
 
+/** Ascending by Skylight id: ids are digit strings, so a shorter one is smaller, then by text. */
+function compareIds(a: string, b: string): number {
+  return a.length !== b.length ? a.length - b.length : a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * The name the library shows for every source calendar, keyed by id. A label that is an email
+ * address (or missing) never leaves the library: it becomes "Google calendar" for a Google
+ * calendar and "Calendar" for any other kind. When several calendars of one kind get that
+ * placeholder, they are numbered in ascending id order ("Google calendar", "Google calendar 2"),
+ * so two rows never look the same. Any other label is returned as Skylight has it.
+ *
+ * `calendar.sources()` and the create preview both call this on the full list, so a calendar has
+ * the same name in both. The number follows the other calendars' ids, so it can change when a
+ * calendar with a lower id is added or removed: match on `id`, never on the name.
+ */
+export function sourceLabels(cals: SourceCalendarResource[]): Map<string, string> {
+  const labels = new Map<string, string>();
+  const used = new Map<string, number>();
+  for (const cal of [...cals].sort((a, b) => compareIds(String(a.id), String(b.id)))) {
+    const a = cal.attributes as Record<string, unknown>;
+    const label = typeof a.label === "string" ? a.label : "";
+    if (label !== "" && !EMAIL.test(label)) {
+      labels.set(String(cal.id), label);
+      continue;
+    }
+    const base = a.kind === "gmail" ? "Google calendar" : "Calendar";
+    const n = (used.get(base) ?? 0) + 1;
+    used.set(base, n);
+    labels.set(String(cal.id), n === 1 ? base : `${base} ${n}`);
+  }
+  return labels;
+}
+
+/** True when the Skylight app preselects this calendar for new events (`default_for_new_events`). */
+export function sourceIsDefault(cal: SourceCalendarResource): boolean {
+  return (cal.attributes as Record<string, unknown>).default_for_new_events === true;
+}
+
 /** True when the library can create on this source: a Google calendar this account can write to. */
 export function sourceWritable(cal: SourceCalendarResource): boolean {
   const a = cal.attributes as Record<string, unknown>;
@@ -287,7 +326,8 @@ async function planCreateInner(input: unknown, timeZone: string): Promise<Create
 
   let target: { calendarId: string; accountId: string | number; label: string; id: string } | null = null;
   if (raw.calendar !== "skylight") {
-    const cal = (await sourcesWithAccounts()).find((c) => String(c.id) === raw.calendar);
+    const all = await sourcesWithAccounts();
+    const cal = all.find((c) => String(c.id) === raw.calendar);
     if (!cal) throw writeError("unknown_calendar", "No synced calendar with that id: see calendar.sources().");
     const a = cal.attributes as Record<string, unknown>;
     if (!sourceWritable(cal)) throw writeError("calendar_not_writable", "That calendar is not a Google calendar this account can write to.");
@@ -296,8 +336,8 @@ async function planCreateInner(input: unknown, timeZone: string): Promise<Create
     if (!sourceId || !((typeof account === "string" && account !== "") || typeof account === "number")) {
       throw writeError("calendar_not_writable", "Skylight did not report that calendar's account, so it cannot be written to.");
     }
-    const label = typeof a.label === "string" && !EMAIL.test(a.label) ? a.label : "Google calendar";
-    target = { calendarId: sourceId, accountId: account, label, id: String(cal.id) };
+    const label = sourceLabels(all).get(String(cal.id))!;
+    target ={ calendarId: sourceId, accountId: account, label, id: String(cal.id) };
   }
 
   const categoryIds = [...profileIds, ...labelIds];

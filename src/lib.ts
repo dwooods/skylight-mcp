@@ -59,6 +59,8 @@ import {
   planCreate,
   planDelete,
   planUpdate,
+  sourceIsDefault,
+  sourceLabels,
   sourceWritable,
   writeError,
   type CreateEventInput,
@@ -152,6 +154,12 @@ export interface SourceDto {
   host: string | null;
   /** True when `calendar.create` can write to it: a Google calendar this account can edit. */
   writable: boolean;
+  /**
+   * True when the Skylight app preselects this calendar for new events. At most one is expected, and none
+   * means the household's default is "No calendar" (Skylight's own). It can be set on a calendar that is not
+   * `writable`: check both before offering it.
+   */
+  skylightDefault: boolean;
 }
 
 export interface ProfileDto {
@@ -444,11 +452,10 @@ function toEvent(event: CalendarEventResource, categories: Map<string, CategoryR
   };
 }
 
-function toSource(cal: SourceCalendarResource): SourceDto {
+function toSource(cal: SourceCalendarResource, labels: Map<string, string>): SourceDto {
   const a = cal.attributes;
   const kind = a.kind === "gmail" ? "google" : a.kind === "webcal" ? "feed" : "other";
-  let label = str(a.label) ?? "";
-  if (EMAIL.test(label)) label = kind === "google" ? "Google calendar" : "Calendar";
+  const label = labels.get(String(cal.id)) ?? "Calendar";
   const sourceId = str(a.source_id);
   const hostMatch = kind === "feed" && sourceId ? /^([a-z]+:\/\/[^/]+)/i.exec(redactFeedUrl(sourceId)) : null;
   return {
@@ -459,6 +466,7 @@ function toSource(cal: SourceCalendarResource): SourceDto {
     editable: a.editable === true,
     host: hostMatch ? hostMatch[1]! : null,
     writable: sourceWritable(cal),
+    skylightDefault: sourceIsDefault(cal),
   };
 }
 
@@ -518,7 +526,12 @@ export function createSkylight(options: CreateSkylightOptions): Skylight {
           const byId = new Map(categories.map((c) => [String(c.id), c]));
           return events.map((e) => toEvent(e, byId));
         }),
-      sources: () => run(async () => (await getSourceCalendars()).map(toSource)),
+      sources: () =>
+        run(async () => {
+          const cals = await getSourceCalendars();
+          const labels = sourceLabels(cals);
+          return cals.map((c) => toSource(c, labels));
+        }),
       previewCreate: (input) => runRead(async () => (await planCreate(input, config.timezone)).preview),
       create: (input) => runCommit(async () => eventResult(await commitCreate(input, config.timezone, categoryIds))),
       previewUpdate: (input) =>
