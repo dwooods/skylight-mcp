@@ -1,7 +1,8 @@
 /**
  * Names and the default flag for source calendars (library 1.29.0). The properties that matter:
- * no email address ever comes back as a name, two calendars never look the same, a calendar has the
- * same name in sources() and in the create preview, and the default flag is Skylight's own.
+ * by default no email address comes back as a name, nothing is numbered, "as-is" is opt-in and returns the
+ * label only, a calendar has the same name in sources() and in the create preview, and the default flag is
+ * Skylight's own.
  */
 import { describe, expect, it } from "vitest";
 import { sourceIsDefault, sourceLabels } from "../src/lib-writes.js";
@@ -24,33 +25,28 @@ describe("sourceLabels", () => {
     }
   });
 
-  it("numbers calendars that would look the same in ascending id order, and the first keeps the plain name", () => {
-    const l = sourceLabels([cal("959688", "a@example.com"), cal("9090009", "b@example.com"), cal("959687", "c@example.com")]);
-    expect(l.get("959687")).toBe("Google calendar");
-    expect(l.get("959688")).toBe("Google calendar 2");
-    expect(l.get("9090009")).toBe("Google calendar 3");
+  it("never numbers: calendars that share the placeholder keep the same plain name, whatever the order", () => {
+    const list = [cal("959688", "a@example.com"), cal("9090009", "b@example.com"), cal("959687", "c@example.com")];
+    for (const l of [sourceLabels(list), sourceLabels([...list].reverse())]) {
+      expect([...l.values()]).toEqual(["Google calendar", "Google calendar", "Google calendar"]);
+    }
   });
 
-  it("compares ids as numbers, not text: 9 comes before 10", () => {
-    const l = sourceLabels([cal("10", "a@example.com"), cal("9", "b@example.com")]);
-    expect([l.get("9"), l.get("10")]).toEqual(["Google calendar", "Google calendar 2"]);
-  });
-
-  it("gives the same names however the list is ordered", () => {
-    const list = [cal("5", "a@example.com"), cal("2", "b@example.com"), cal("8", "c@example.com")];
-    const a = sourceLabels(list);
-    const b = sourceLabels([...list].reverse());
-    for (const id of ["2", "5", "8"]) expect(a.get(id)).toBe(b.get(id));
-  });
-
-  it("counts each kind on its own, and a calendar with a real name does not take a number", () => {
-    const l = sourceLabels([cal("1", "a@example.com"), cal("2", "Home"), cal("3", "b@example.com", "webcal"), cal("4", "c@example.com", "webcal"), cal("5", "d@example.com")]);
-    expect([l.get("1"), l.get("2"), l.get("3"), l.get("4"), l.get("5")]).toEqual(["Google calendar", "Home", "Calendar", "Calendar 2", "Google calendar 2"]);
+  it("uses the kind's placeholder, and a calendar with a real name keeps it", () => {
+    const l = sourceLabels([cal("1", "a@example.com"), cal("2", "Home"), cal("3", "b@example.com", "webcal"), cal("4", "c@example.com", "other")]);
+    expect([l.get("1"), l.get("2"), l.get("3"), l.get("4")]).toEqual(["Google calendar", "Home", "Calendar", "Calendar"]);
   });
 
   it("treats a missing or non-text label like an email label", () => {
     const l = sourceLabels([cal("1", undefined), cal("2", null), cal("3", 7)]);
-    expect([l.get("1"), l.get("2"), l.get("3")]).toEqual(["Google calendar", "Google calendar 2", "Google calendar 3"]);
+    expect([...l.values()]).toEqual(["Google calendar", "Google calendar", "Google calendar"]);
+  });
+
+  it("as-is returns the label exactly as Skylight has it, an address included, and nothing else about the calendar", () => {
+    const list = [cal("1", "her.name@example.com", "gmail", { source_id: "src.secret@group.calendar.example.com" }), cal("2", "Family"), cal("3", "", "gmail"), cal("4", undefined, "webcal")];
+    const l = sourceLabels(list, true);
+    expect([l.get("1"), l.get("2"), l.get("3"), l.get("4")]).toEqual(["her.name@example.com", "Family", "Google calendar", "Calendar"]);
+    expect(JSON.stringify([...l.values()])).not.toContain("src.secret");
   });
 });
 
