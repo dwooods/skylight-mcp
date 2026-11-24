@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-11-24
+
 ### Added
 - Library: `createSkylight({ labels: "as-is" })`, opt-in. `calendar.sources()` and the create preview's `calendar.label` then return Skylight's own label unchanged, an email address included (a personal Google calendar is named by its address, as the Skylight app shows it). Default is `"masked"`, which keeps today's replacement, so an importer that does not ask for it sees no change. It adds only the label: never the calendar's source id or account, and event and profile labels stay masked. Anything other than the two values is refused. The importer then owns where an address is shown. Requested by Mantel (2026-11-24); decided by David.
 - Library: `SourceDto.skylightDefault`, true on the calendar the Skylight app preselects for new events (Skylight's `default_for_new_events`). None marked means the household default is "No calendar" (`"skylight"`); the library does not resolve that fallback. It can be set on a calendar that is not `writable`. Asked for by Mantel (2026-11-23); verified on the real frame by a read of the source calendars (exactly one marked).
