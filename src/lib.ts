@@ -110,6 +110,14 @@ export interface CreateSkylightOptions {
   /** IANA zone, for example "America/Los_Angeles". */
   timezone: string;
   credential: SkylightCredential;
+  /**
+   * How a synced calendar's name leaves `calendar.sources()` and the create preview's `calendar.label`.
+   * "masked" (the default) replaces an email-shaped name with "Google calendar" or "Calendar", so no address
+   * escapes. "as-is" returns the name exactly as Skylight has it, an address included: the importer then owns
+   * where it is shown. It never adds the calendar's source id or account, and it changes nothing else (event
+   * and profile labels stay masked).
+   */
+  labels?: "masked" | "as-is";
 }
 
 /**
@@ -145,7 +153,7 @@ export interface EventDto {
 
 export interface SourceDto {
   id: string;
-  /** An email-shaped label is replaced, so no address leaves the library. */
+  /** As Skylight has it. An email-shaped label is replaced unless `createSkylight` was given `labels: "as-is"`. Two calendars can share a placeholder: tell them apart by `id`. */
   label: string;
   kind: "google" | "feed" | "other";
   role: string | null;
@@ -304,7 +312,7 @@ export interface Skylight {
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const EMAIL = /[^\s@<>()"',;:]+@[^\s@<>()"',;:]+\.[^\s@<>()"',;:]+/;
-const OPTION_KEYS = new Set(["frameId", "timezone", "credential"]);
+const OPTION_KEYS = new Set(["frameId", "timezone", "credential", "labels"]);
 
 function assertDate(value: unknown, name: string): string {
   if (typeof value !== "string" || !DATE.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
@@ -329,12 +337,14 @@ function isStore(value: unknown): value is CredentialStore {
   return !!v && typeof v === "object" && typeof v.read === "function" && typeof v.write === "function" && typeof v.delete === "function";
 }
 
-function validateOptions(options: CreateSkylightOptions): { config: Config; store: CredentialStore | null } {
+function validateOptions(options: CreateSkylightOptions): { config: Config; store: CredentialStore | null; labelsAsIs: boolean } {
   if (!options || typeof options !== "object") throw new Error("createSkylight needs an options object.");
   for (const key of Object.keys(options)) {
     if (!OPTION_KEYS.has(key)) throw new Error(`Unknown option "${key}". The API host is fixed and cannot be configured.`);
   }
-  const { frameId, timezone, credential } = options;
+  const { frameId, timezone, credential, labels } = options;
+  if (labels !== undefined && labels !== "masked" && labels !== "as-is") throw new Error('labels must be "masked" or "as-is".');
+  const labelsAsIs = labels === "as-is";
   if (typeof frameId !== "string" || !/^\d+$/.test(frameId)) throw new Error("frameId must be the household's numeric id.");
   if (typeof timezone !== "string") throw new Error("timezone must be an IANA zone name.");
   try {
@@ -343,11 +353,11 @@ function validateOptions(options: CreateSkylightOptions): { config: Config; stor
     throw new Error("timezone must be an IANA zone name.");
   }
   if (isStore(credential)) {
-    return { config: { frameId, timezone, authType: "bearer" }, store: credential };
+    return { config: { frameId, timezone, authType: "bearer" }, store: credential, labelsAsIs };
   }
   const keys = credential && typeof credential === "object" ? Object.keys(credential) : [];
   if (keys.length === 1 && keys[0] === "token" && typeof (credential as { token: unknown }).token === "string" && (credential as { token: string }).token) {
-    return { config: { frameId, timezone, authType: "bearer", token: (credential as { token: string }).token }, store: null };
+    return { config: { frameId, timezone, authType: "bearer", token: (credential as { token: string }).token }, store: null, labelsAsIs };
   }
   throw new Error("credential must be a credential store or { token }.");
 }
@@ -493,7 +503,7 @@ function toChore(chore: ChoreResource, names: Map<string, string>): ChoreDto {
 // ---------------------------------------------------------------------------
 
 export function createSkylight(options: CreateSkylightOptions): Skylight {
-  const { config, store } = validateOptions(options);
+  const { config, store, labelsAsIs } = validateOptions(options);
   // Quiet: no per-request trace lines in the importer's logs. Errors and warnings still print.
   const client = new SkylightClient(config, store, { quiet: true });
   const run = <T>(fn: () => Promise<T>): Promise<T> => runWithContext({ client, config }, fn);
@@ -529,11 +539,11 @@ export function createSkylight(options: CreateSkylightOptions): Skylight {
       sources: () =>
         run(async () => {
           const cals = await getSourceCalendars();
-          const labels = sourceLabels(cals);
+          const labels = sourceLabels(cals, labelsAsIs);
           return cals.map((c) => toSource(c, labels));
         }),
-      previewCreate: (input) => runRead(async () => (await planCreate(input, config.timezone)).preview),
-      create: (input) => runCommit(async () => eventResult(await commitCreate(input, config.timezone, categoryIds))),
+      previewCreate: (input) => runRead(async () => (await planCreate(input, config.timezone, labelsAsIs)).preview),
+      create: (input) => runCommit(async () => eventResult(await commitCreate(input, config.timezone, categoryIds, labelsAsIs))),
       previewUpdate: (input) =>
         runRead(async () => {
           const plan = await planUpdate(input, config.timezone, categoryIds);

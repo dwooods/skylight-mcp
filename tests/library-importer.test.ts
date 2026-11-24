@@ -405,7 +405,7 @@ describe("event create, stage 1 of library writes (2026-11-15)", () => {
     });
   });
 
-  it("W2a. two calendars labelled with an email get different names, the same in sources() and in the create preview, and no address comes back; skylightDefault follows Skylight's flag", () => {
+  it("W2a. by default two calendars labelled with an email keep the same plain name (not numbered), match in sources() and in the create preview, and no address comes back; skylightDefault follows Skylight's flag", () => {
     const two = {
       data: [
         { id: "20", type: "source_calendar", attributes: { label: "second.person@example.com", kind: "gmail", role: "owner", editable: true, source_id: "second@group.calendar.example.com" }, relationships: { calendar_account: { data: { id: "777", type: "calendar_account" } } } },
@@ -419,10 +419,31 @@ describe("event create, stage 1 of library writes (2026-11-15)", () => {
       fx({ "/source_calendars": two })
     );
     const o = out as { sources: Array<{ id: string; label: string; skylightDefault: boolean }>; previews: Record<string, { id: string; label: string; kind: string }> };
-    expect(Object.fromEntries(o.sources.map((s) => [s.id, s.label]))).toEqual({ "9": "Google calendar", "20": "Google calendar 2", "30": "Family" });
+    expect(Object.fromEntries(o.sources.map((s) => [s.id, s.label]))).toEqual({ "9": "Google calendar", "20": "Google calendar", "30": "Family" });
     expect(Object.fromEntries(o.sources.map((s) => [s.id, s.skylightDefault]))).toEqual({ "9": true, "20": false, "30": false });
     for (const s of o.sources) expect(o.previews[s.id]).toEqual({ id: s.id, label: s.label, kind: "google" });
     expect(JSON.stringify(out)).not.toMatch(EMAIL);
+  });
+
+  it("W2b. labels: \"as-is\" returns the label exactly as Skylight has it in sources() and the preview, and still never the calendar's address or account; a bad value is refused", () => {
+    const two = {
+      data: [
+        { id: "9", type: "source_calendar", attributes: { label: "first.person@example.com", kind: "gmail", role: "owner", editable: true, default_for_new_events: true, source_id: "first@group.calendar.example.com" }, relationships: { calendar_account: { data: { id: "777", type: "calendar_account" } } } },
+        { id: "30", type: "source_calendar", attributes: { label: "Family", kind: "gmail", role: "writer", editable: true, source_id: "family@group.calendar.example.com" }, relationships: { calendar_account: { data: { id: "777", type: "calendar_account" } } } },
+      ],
+      included: [{ id: "777", type: "calendar_account", attributes: { email: "account.owner@example.com", provider: "google" } }],
+    };
+    const asIs = `const sky = lib.createSkylight({ frameId: "123", timezone: "America/Los_Angeles", credential: { token: "tok-test-1" }, labels: "as-is" });`;
+    const { out } = runImporter(
+      `${asIs}\nconst sources = await sky.calendar.sources();\nconst previews = {};\nfor (const s of sources.filter((s) => s.writable)) previews[s.id] = (await sky.calendar.previewCreate({ ...${JSON.stringify(input)}, calendar: s.id })).calendar;\nlet bad = null; try { lib.createSkylight({ frameId: "123", timezone: "America/Los_Angeles", credential: { token: "t" }, labels: "yes" }); } catch (e) { bad = String(e.message); }\nreturn { sources, previews, bad };`,
+      fx({ "/source_calendars": two })
+    );
+    const o = out as { sources: Array<{ id: string; label: string }>; previews: Record<string, { label: string }>; bad: string | null };
+    expect(Object.fromEntries(o.sources.map((s) => [s.id, s.label]))).toEqual({ "9": "first.person@example.com", "30": "Family" });
+    expect(o.previews["9"]!.label).toBe("first.person@example.com");
+    const text = JSON.stringify(o);
+    for (const secret of ["account.owner@example.com", "first@group.calendar.example.com", "family@group.calendar.example.com"]) expect(text).not.toContain(secret);
+    expect(o.bad).toMatch(/labels must be/);
   });
 
   it("W2. create sends exactly what the preview showed, once, to the pinned host, and returns the read-back as an EventDto", () => {
@@ -565,6 +586,7 @@ describe("event create, stage 1 of library writes (2026-11-15)", () => {
     expect(dts).toMatch(/create\(input: CreateEventInput\): Promise<EventDto>/);
     expect(dts).toMatch(/writable: boolean/);
     expect(dts).toMatch(/skylightDefault: boolean/);
+    expect(dts).toMatch(/labels\?: "masked" \| "as-is"/);
   });
   // 2026-11-20 (Mantel's outcome_unknown proposal): failures around the write are told apart, never carry Skylight's text.
   const SECRET = { __status: 500, errors: ["SKYLIGHT_SAYS_SECRET person.two@example.com"] };

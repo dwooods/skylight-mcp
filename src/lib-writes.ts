@@ -175,36 +175,21 @@ async function sourcesWithAccounts(): Promise<SourceCalendarResource[]> {
   return response.data ?? [];
 }
 
-/** Ascending by Skylight id: ids are digit strings, so a shorter one is smaller, then by text. */
-function compareIds(a: string, b: string): number {
-  return a.length !== b.length ? a.length - b.length : a < b ? -1 : a > b ? 1 : 0;
-}
-
 /**
- * The name the library shows for every source calendar, keyed by id. A label that is an email
- * address (or missing) never leaves the library: it becomes "Google calendar" for a Google
- * calendar and "Calendar" for any other kind. When several calendars of one kind get that
- * placeholder, they are numbered in ascending id order ("Google calendar", "Google calendar 2"),
- * so two rows never look the same. Any other label is returned as Skylight has it.
- *
- * `calendar.sources()` and the create preview both call this on the full list, so a calendar has
- * the same name in both. The number follows the other calendars' ids, so it can change when a
- * calendar with a lower id is added or removed: match on `id`, never on the name.
+ * The name a source calendar leaves the library with, in sources() and in the create preview alike. A label
+ * Skylight gives is returned as it is, except an email-shaped one, which is replaced by default so no address
+ * escapes: "Google calendar" for a Google calendar, "Calendar" for any other kind. A missing or empty label gets
+ * the same placeholder. Nothing is numbered: two calendars can share a placeholder, so tell them apart by `id`.
+ * With `asIs` (the importer's opt-in, `labels: "as-is"`) a label is returned exactly as Skylight has it, an
+ * email address included; only a missing or empty label is replaced. Only the label is ever returned: never the
+ * calendar's source id or its account.
  */
-export function sourceLabels(cals: SourceCalendarResource[]): Map<string, string> {
+export function sourceLabels(cals: SourceCalendarResource[], asIs = false): Map<string, string> {
   const labels = new Map<string, string>();
-  const used = new Map<string, number>();
-  for (const cal of [...cals].sort((a, b) => compareIds(String(a.id), String(b.id)))) {
+  for (const cal of cals) {
     const a = cal.attributes as Record<string, unknown>;
     const label = typeof a.label === "string" ? a.label : "";
-    if (label !== "" && !EMAIL.test(label)) {
-      labels.set(String(cal.id), label);
-      continue;
-    }
-    const base = a.kind === "gmail" ? "Google calendar" : "Calendar";
-    const n = (used.get(base) ?? 0) + 1;
-    used.set(base, n);
-    labels.set(String(cal.id), n === 1 ? base : `${base} ${n}`);
+    labels.set(String(cal.id), label !== "" && (asIs || !EMAIL.test(label)) ? label : a.kind === "gmail" ? "Google calendar" : "Calendar");
   }
   return labels;
 }
@@ -236,11 +221,11 @@ interface CreatePlan {
 
 /** The one check behind previewCreate and create. Reads categories and calendars fresh every time. */
 /** The one check behind previewCreate and create. It only reads; a failed read is `read_failed`. */
-export function planCreate(input: unknown, timeZone: string): Promise<CreatePlan> {
-  return asRead(() => planCreateInner(input, timeZone));
+export function planCreate(input: unknown, timeZone: string, labelsAsIs = false): Promise<CreatePlan> {
+  return asRead(() => planCreateInner(input, timeZone, labelsAsIs));
 }
 
-async function planCreateInner(input: unknown, timeZone: string): Promise<CreatePlan> {
+async function planCreateInner(input: unknown, timeZone: string, labelsAsIs: boolean): Promise<CreatePlan> {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw writeError("bad_input", "create needs an object of event fields.");
   const raw = input as Record<string, unknown>;
   for (const key of Object.keys(raw)) {
@@ -336,7 +321,7 @@ async function planCreateInner(input: unknown, timeZone: string): Promise<Create
     if (!sourceId || !((typeof account === "string" && account !== "") || typeof account === "number")) {
       throw writeError("calendar_not_writable", "Skylight did not report that calendar's account, so it cannot be written to.");
     }
-    const label = sourceLabels(all).get(String(cal.id))!;
+    const label = sourceLabels(all, labelsAsIs).get(String(cal.id))!;
     target ={ calendarId: sourceId, accountId: account, label, id: String(cal.id) };
   }
 
@@ -475,9 +460,10 @@ function matchesPlan(event: CalendarEventResource, plan: CreatePlan, categoryIds
 export async function commitCreate(
   input: unknown,
   timeZone: string,
-  categoryIdsOf: (e: CalendarEventResource) => string[]
+  categoryIdsOf: (e: CalendarEventResource) => string[],
+  labelsAsIs = false
 ): Promise<CalendarEventResource> {
-  const plan = await planCreate(input, timeZone);
+  const plan = await planCreate(input, timeZone, labelsAsIs);
   const read = () => getCalendarEvents({ dateMin: plan.startDate, dateMax: plan.endDate, timezone: timeZone });
   const base = (e: CalendarEventResource) => String(e.id).split("-")[0]!;
   // What was already there, so a self-check after an unknown outcome can tell a new event from an old one.
